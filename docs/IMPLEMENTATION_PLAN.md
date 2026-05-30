@@ -12,7 +12,7 @@ Phases 1–5 deliver and harden the MVP. Phases 6–14 correspond to the future 
 
 ---
 
-### Step 1.1 — Create directory structure
+### Step 1.1 — Create directory structure ✅
 
 Create the following layout inside the repo root:
 
@@ -33,7 +33,7 @@ MacBook_Security/
 
 ---
 
-### Step 1.2 — Initialize Python virtual environment and dependencies
+### Step 1.2 — Initialize Python virtual environment and dependencies ✅
 
 - Create a `venv` at the repo root: `python3 -m venv .venv`
 - Add `Flask` as the only dependency in `requirements.txt`
@@ -59,10 +59,10 @@ Update `README.md` to include:
 
 ### Phase 1 Integration Validation
 
-- [ ] `find . -type d` shows `src/`, `src/collectors/`, `templates/`, `static/`
-- [ ] `.venv/bin/python -c "import flask"` exits with no error
-- [ ] `requirements.txt` exists and lists Flask
-- [ ] `.gitignore` excludes `.venv/`
+- [x] `find . -type d` shows `src/`, `src/collectors/`, `templates/`, `static/`
+- [x] `.venv/bin/python -c "import flask"` exits with no error
+- [x] `requirements.txt` exists and lists Flask
+- [x] `.gitignore` excludes `.venv/`
 - [ ] `README.md` contains setup and run instructions
 
 ---
