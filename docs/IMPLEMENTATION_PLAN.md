@@ -112,7 +112,7 @@ Rules for every collector function:
 
 ---
 
-### Step 2.3 — Write a collector registry
+### Step 2.3 — Write a collector registry ✅
 
 Create `src/collectors/__init__.py` that exposes a single function:
 
@@ -129,11 +129,11 @@ This function calls all registered collector modules and returns a list of resul
 
 ### Phase 2 Integration Validation
 
-- [ ] All four CLI commands run successfully in Terminal
-- [ ] `src/collectors/system_integrity.py` exists with four collector functions
-- [ ] Each function returns the correct dict shape on the target machine
-- [ ] `src/collectors/__init__.py` exposes `run_all_collectors()`
-- [ ] `run_all_collectors()` returns exactly four results, none with unhandled exceptions
+- [x] All four CLI commands run successfully in Terminal
+- [x] `src/collectors/system_integrity.py` exists with four collector functions
+- [x] Each function returns the correct dict shape on the target machine
+- [x] `src/collectors/__init__.py` exposes `run_all_collectors()`
+- [x] `run_all_collectors()` returns exactly four results, none with unhandled exceptions
 
 ---
 
