@@ -92,7 +92,7 @@ Run each of the following in Terminal and record the exact output:
 
 ---
 
-### Step 2.2 — Write the system integrity collector module
+### Step 2.2 — Write the system integrity collector module ✅
 
 Create `src/collectors/system_integrity.py` with four functions:
 
