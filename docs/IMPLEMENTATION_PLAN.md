@@ -44,7 +44,7 @@ MacBook_Security/
 
 ---
 
-### Step 1.3 — Update README with run instructions
+### Step 1.3 — Update README with run instructions ✅
 
 Update `README.md` to include:
 - What the project is (one sentence)
@@ -63,7 +63,7 @@ Update `README.md` to include:
 - [x] `.venv/bin/python -c "import flask"` exits with no error
 - [x] `requirements.txt` exists and lists Flask
 - [x] `.gitignore` excludes `.venv/`
-- [ ] `README.md` contains setup and run instructions
+- [x] `README.md` contains setup and run instructions
 
 ---
 
