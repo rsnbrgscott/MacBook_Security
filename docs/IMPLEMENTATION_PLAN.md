@@ -75,16 +75,18 @@ Update `README.md` to include:
 
 ---
 
-### Step 2.1 — Manually verify CLI commands
+### Step 2.1 — Manually verify CLI commands ✅
 
 Run each of the following in Terminal and record the exact output:
 
-| Command | Expected output contains |
-|---------|--------------------------|
-| `csrutil status` | `System Integrity Protection status: enabled` (or `disabled`) |
-| `spctl --status` | `assessments enabled` (or `disabled`) |
-| `fdesetup status` | `FileVault is On` (or `Off`) |
-| `bputil -d` | Policy information block; note exact field names and format |
+| Command | Expected output contains | Result |
+|---------|--------------------------|--------|
+| `csrutil status` | `System Integrity Protection status: enabled` (or `disabled`) | ✅ enabled |
+| `spctl --status` | `assessments enabled` (or `disabled`) | ✅ assessments enabled |
+| `fdesetup status` | `FileVault is On` (or `Off`) | ✅ FileVault is On |
+| ~~`bputil -d`~~ `system_profiler SPiBridgeDataType` | `Secure Boot: Full Security` | ✅ Full Security |
+
+> ⚠️ `bputil -d` requires root (exit code 1). Replaced with `system_profiler SPiBridgeDataType`, which provides equivalent output without elevated privileges. SPEC.md updated accordingly. Full outputs recorded in `docs/cli_verification.md`.
 
 **Validation:** All four commands run without error. Paste the raw output into a scratch note — it will be used to write the parsers in Step 2.2.
 

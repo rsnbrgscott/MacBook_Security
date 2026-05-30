@@ -38,7 +38,7 @@ This project is a personal, read-only security monitoring dashboard for a MacBoo
 | **SIP** (System Integrity Protection) | `csrutil status` | Prevents modification of protected system files and directories, even by root. A foundational macOS security control introduced in OS X El Capitan. | Malware or a compromised process can alter core OS binaries, inject code into system processes, or persist across reinstalls. |
 | **Gatekeeper** | `spctl --status` | Enforces that apps are signed by an Apple-notarized developer before running. Acts as the first line of defense against malicious software downloads. | Unsigned or tampered apps run without warning, bypassing Apple's malware scanning pipeline. |
 | **FileVault** | `fdesetup status` | Full-disk encryption for the macOS volume. Protects all data at rest using XTS-AES-128 encryption. | Anyone with physical access to the machine (lost/stolen) can read all data by removing the drive or booting an external OS. |
-| **Secure Boot** | `bputil -d` | Ensures only a trusted, Apple-signed operating system loads at startup. On Apple Silicon, this is enforced by the Secure Enclave. | A compromised bootloader or unauthorized OS could persist silently, surviving even a clean macOS reinstall. |
+| **Secure Boot** | `system_profiler SPiBridgeDataType` | Ensures only a trusted, Apple-signed operating system loads at startup. On Apple Silicon, this is enforced by the Secure Enclave. | A compromised bootloader or unauthorized OS could persist silently, surviving even a clean macOS reinstall. |
 
 > **Note on Apple Silicon vs. Intel:** `bputil` is specific to Apple Silicon. On Intel Macs, Secure Boot is checked via the `Startup Security Utility` in Recovery Mode and is not easily scriptable. Since this project targets Apple Silicon, `bputil` is the correct tool — but its output should be treated carefully (see Open Questions).
 
@@ -74,7 +74,7 @@ Storage: None (MVP is stateless; data is collected fresh on each request)
 | `csrutil status` | None | Readable by any user from Terminal |
 | `spctl --status` | None | Readable by any user |
 | `fdesetup status` | None | Readable by any user (full disk access not required for status) |
-| `bputil -d` | None for basic output; some flags require root | ⚠️ Output format and available flags vary; see Open Questions |
+| `system_profiler SPiBridgeDataType` | None | Replaces `bputil -d`, which requires root. Provides equivalent Secure Boot status without elevated privileges. |
 
 > No `sudo` or elevated privileges are required for the MVP read path. The app should **never** request or store credentials.
 
@@ -139,7 +139,7 @@ The following are explicitly out of MVP scope. Each maps to a self-contained mod
 
 | # | Question / Risk | Notes |
 |---|-----------------|-------|
-| 1 | **`bputil` output stability** | `bputil -d` output is undocumented by Apple and may vary across macOS versions or security policy configurations. The parser must be written defensively and fall back to UNKNOWN gracefully. Needs manual verification on the target machine before writing the parser. |
+| 1 | **Secure Boot data source** | `bputil -d` requires root and was replaced by `system_profiler SPiBridgeDataType`, which provides equivalent output without elevated privileges. Verified on Mac15,9. The `Secure Boot:` field value should be matched by name, not position, as output format may vary across macOS versions. |
 | 2 | **Flask dev server exposure** | Flask's built-in server is not hardened for production. Binding to `127.0.0.1` mitigates network exposure, but the app should include a startup warning that it is not intended for multi-user or networked environments. |
 | 3 | **macOS version variance** | Command output format for `csrutil`, `spctl`, and `fdesetup` has changed across macOS versions. Parsers should match on known-good strings rather than assuming fixed field positions. |
 | 4 | **Port conflicts** | The default port needs to be configurable (env var or CLI flag) to avoid collisions with other local services. |
