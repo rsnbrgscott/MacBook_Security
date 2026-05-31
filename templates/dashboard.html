@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MacBook Security Dashboard</title>
+</head>
+<body>
+  <h1>MacBook Security Dashboard</h1>
+  <a href="/">Refresh</a>
+
+  {% for signal in signals %}
+  <div>
+    <p><strong>Status:</strong> {{ signal.status }}</p>
+    <pre>{{ signal.raw }}</pre>
+    {% if signal.error %}
+    <p><strong>Error:</strong> {{ signal.error }}</p>
+    {% endif %}
+  </div>
+  <hr>
+  {% endfor %}
+</body>
+</html>

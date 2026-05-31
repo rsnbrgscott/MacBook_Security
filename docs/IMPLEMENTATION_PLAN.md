@@ -157,7 +157,7 @@ Create `src/app.py`:
 
 ---
 
-### Step 3.2 — Create a minimal placeholder template
+### Step 3.2 — Create a minimal placeholder template ✅
 
 Create `templates/dashboard.html` with:
 - Valid HTML5 boilerplate
@@ -173,10 +173,10 @@ No styling yet — this is a data-pipeline check, not a UI step.
 
 ### Phase 3 Integration Validation
 
-- [ ] `python src/app.py` starts, prints startup warning, and stays running
-- [ ] `GET http://127.0.0.1:5000/` returns HTTP 200
-- [ ] Page displays four signals with status values
-- [ ] Refresh reloads the page and re-runs all collectors (verify by checking timestamps or toggling a command result)
+- [x] `python src/app.py` starts, prints startup warning, and stays running
+- [x] `GET http://127.0.0.1:5000/` returns HTTP 200
+- [x] Page displays four signals with status values
+- [x] Refresh reloads the page and re-runs all collectors (verified via curl — live data confirmed)
 - [ ] Server is not accessible from another device on the local network (bind address is `127.0.0.1`)
 
 ---
