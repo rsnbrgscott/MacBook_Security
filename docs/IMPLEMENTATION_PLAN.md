@@ -259,7 +259,7 @@ Test by temporarily breaking one collector (e.g., change the command name to som
 
 ---
 
-### Step 5.2 — Configurable port and environment variable support
+### Step 5.2 — Configurable port and environment variable support ✅
 
 - Confirm `PORT` env var overrides the default port (`PORT=8080 python src/app.py` starts on 8080)
 - Add a check that prevents Flask from running in debug mode when launched normally (debug mode auto-reloads and can expose stack traces)

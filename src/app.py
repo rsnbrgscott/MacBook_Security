@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 from flask import Flask, render_template
@@ -20,6 +21,10 @@ def dashboard():
 
 
 if __name__ == "__main__":
+    if os.environ.get("FLASK_DEBUG", "0").strip() not in ("0", "false", ""):
+        print("ERROR: FLASK_DEBUG is set. This dashboard does not run in debug mode.", file=sys.stderr)
+        sys.exit(1)
+
     port = int(os.environ.get("PORT", 5000))
     print(f"Dashboard running at http://127.0.0.1:{port} — local access only")
     app.run(host="127.0.0.1", port=port, debug=False)
