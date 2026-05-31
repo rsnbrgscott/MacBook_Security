@@ -143,7 +143,7 @@ This function calls all registered collector modules and returns a list of resul
 
 ---
 
-### Step 3.1 — Create the Flask application entry point
+### Step 3.1 — Create the Flask application entry point ✅
 
 Create `src/app.py`:
 - Import Flask and `run_all_collectors`
