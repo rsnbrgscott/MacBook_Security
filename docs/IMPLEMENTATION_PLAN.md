@@ -231,11 +231,11 @@ This keeps all signal knowledge in the collector layer, not the template.
 
 ### Phase 4 Integration Validation
 
-- [ ] All four cards render with name, description, status badge, and raw output
-- [ ] Badge colors are correct for each signal's actual status
-- [ ] Raw output is visible and legible
-- [ ] Refresh button reloads the page and updates data
-- [ ] Page renders correctly at normal browser zoom (no overflow or broken layout)
+- [x] All four cards render with name, description, status badge, and raw output
+- [x] Badge colors are correct for each signal's actual status
+- [x] Raw output is visible and legible
+- [x] Refresh button reloads the page and updates data
+- [x] Page renders correctly at normal browser zoom (no overflow or broken layout)
 
 ---
 
