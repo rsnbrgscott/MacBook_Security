@@ -201,7 +201,7 @@ Define a card layout in `templates/dashboard.html` using a Jinja2 `for` loop ove
 
 ---
 
-### Step 4.2 — Write the stylesheet
+### Step 4.2 — Write the stylesheet ✅
 
 Create `static/style.css`:
 - Page: dark or neutral background, centered content, readable font
