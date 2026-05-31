@@ -24,7 +24,7 @@ pip install -r requirements.txt
 .venv/bin/python src/app.py
 ```
 
-Then open `http://127.0.0.1:5000` in a browser.
+Then open `http://127.0.0.1:8000` in a browser.
 
 To use a different port:
 
