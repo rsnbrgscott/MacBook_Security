@@ -4,20 +4,28 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MacBook Security Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <h1>MacBook Security Dashboard</h1>
-  <a href="/">Refresh</a>
+  <header class="page-header">
+    <h1 class="page-title">MacBook Security Dashboard</h1>
+    <a class="refresh-btn" href="/">Refresh</a>
+  </header>
 
-  {% for signal in signals %}
-  <div>
-    <p><strong>Status:</strong> {{ signal.status }}</p>
-    <pre>{{ signal.raw }}</pre>
-    {% if signal.error %}
-    <p><strong>Error:</strong> {{ signal.error }}</p>
-    {% endif %}
-  </div>
-  <hr>
-  {% endfor %}
+  <main class="card-grid">
+    {% for signal in signals %}
+    <div class="card">
+      <div class="card-header">
+        <h2 class="signal-name">{{ signal.name }}</h2>
+        <span class="badge badge--{{ signal.status | lower }}">{{ signal.status }}</span>
+      </div>
+      <p class="signal-description">{{ signal.description }}</p>
+      <pre class="raw-output">{{ signal.raw }}</pre>
+      {% if signal.error %}
+      <p class="signal-error">Error: {{ signal.error }}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </main>
 </body>
 </html>

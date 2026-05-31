@@ -187,7 +187,7 @@ No styling yet — this is a data-pipeline check, not a UI step.
 
 ---
 
-### Step 4.1 — Design the status card component
+### Step 4.1 — Design the status card component ✅
 
 Each card must display:
 - Signal name (e.g., "System Integrity Protection")
@@ -217,7 +217,7 @@ Create `static/style.css`:
 
 ---
 
-### Step 4.3 — Add signal metadata to collector output
+### Step 4.3 — Add signal metadata to collector output ✅ (completed as prerequisite for Step 4.1)
 
 Update each collector function to include two additional fields in its return dict:
 - `"name"`: human-readable signal name (e.g., `"FileVault"`)

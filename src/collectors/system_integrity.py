@@ -26,53 +26,53 @@ def _run(cmd: list[str], timeout: int = 10) -> tuple[str, str | None]:
 def check_sip() -> dict:
     raw, error = _run(["csrutil", "status"])
     if error:
-        return {"status": "UNKNOWN", "raw": raw, "error": error}
+        return {"name": "System Integrity Protection", "description": "Prevents modification of protected system files and directories, even by root.", "status": "UNKNOWN", "raw": raw, "error": error}
     if "enabled" in raw:
         status = "PASS"
     elif "disabled" in raw:
         status = "FAIL"
     else:
         status, error = "UNKNOWN", f"Unrecognized output: {raw!r}"
-    return {"status": status, "raw": raw, "error": error}
+    return {"name": "System Integrity Protection", "description": "Prevents modification of protected system files and directories, even by root.", "status": status, "raw": raw, "error": error}
 
 
 def check_gatekeeper() -> dict:
     raw, error = _run(["spctl", "--status"])
     if error:
-        return {"status": "UNKNOWN", "raw": raw, "error": error}
+        return {"name": "Gatekeeper", "description": "Enforces that apps are signed by an Apple-notarized developer before they can run.", "status": "UNKNOWN", "raw": raw, "error": error}
     if "assessments enabled" in raw:
         status = "PASS"
     elif "assessments disabled" in raw:
         status = "FAIL"
     else:
         status, error = "UNKNOWN", f"Unrecognized output: {raw!r}"
-    return {"status": status, "raw": raw, "error": error}
+    return {"name": "Gatekeeper", "description": "Enforces that apps are signed by an Apple-notarized developer before they can run.", "status": status, "raw": raw, "error": error}
 
 
 def check_filevault() -> dict:
     raw, error = _run(["fdesetup", "status"])
     if error:
-        return {"status": "UNKNOWN", "raw": raw, "error": error}
+        return {"name": "FileVault", "description": "Full-disk encryption — protects all data at rest if the machine is lost or stolen.", "status": "UNKNOWN", "raw": raw, "error": error}
     if "FileVault is On" in raw:
         status = "PASS"
     elif "FileVault is Off" in raw:
         status = "FAIL"
     else:
         status, error = "UNKNOWN", f"Unrecognized output: {raw!r}"
-    return {"status": status, "raw": raw, "error": error}
+    return {"name": "FileVault", "description": "Full-disk encryption — protects all data at rest if the machine is lost or stolen.", "status": status, "raw": raw, "error": error}
 
 
 def check_secure_boot() -> dict:
     raw, error = _run(["system_profiler", "SPiBridgeDataType"])
     if error:
-        return {"status": "UNKNOWN", "raw": raw, "error": error}
+        return {"name": "Secure Boot", "description": "Ensures only a trusted, Apple-signed operating system loads at startup.", "status": "UNKNOWN", "raw": raw, "error": error}
 
     secure_boot_line = next(
         (line.strip() for line in raw.splitlines() if "Secure Boot:" in line),
         None,
     )
     if secure_boot_line is None:
-        return {"status": "UNKNOWN", "raw": raw, "error": "'Secure Boot:' field not found in output"}
+        return {"name": "Secure Boot", "description": "Ensures only a trusted, Apple-signed operating system loads at startup.", "status": "UNKNOWN", "raw": raw, "error": "'Secure Boot:' field not found in output"}
 
     if "Full Security" in secure_boot_line:
         status = "PASS"
@@ -84,7 +84,7 @@ def check_secure_boot() -> dict:
     else:
         status, error = "UNKNOWN", f"Unrecognized Secure Boot value: {secure_boot_line!r}"
 
-    return {"status": status, "raw": raw, "error": error}
+    return {"name": "Secure Boot", "description": "Ensures only a trusted, Apple-signed operating system loads at startup.", "status": status, "raw": raw, "error": error}
 
 
 if __name__ == "__main__":
