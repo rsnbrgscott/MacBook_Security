@@ -245,7 +245,7 @@ This keeps all signal knowledge in the collector layer, not the template.
 
 ---
 
-### Step 5.1 — Error handling pass
+### Step 5.1 — Error handling pass ✅
 
 Review each collector function and verify:
 - A subprocess timeout does not crash the app (returns UNKNOWN)
