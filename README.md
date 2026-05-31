@@ -21,7 +21,7 @@ pip install -r requirements.txt
 ## Run
 
 ```zsh
-python src/app.py
+.venv/bin/python src/app.py
 ```
 
 Then open `http://127.0.0.1:5000` in a browser.
@@ -29,7 +29,7 @@ Then open `http://127.0.0.1:5000` in a browser.
 To use a different port:
 
 ```zsh
-PORT=8080 python src/app.py
+PORT=8080 .venv/bin/python src/app.py
 ```
 
 ## Project structure
