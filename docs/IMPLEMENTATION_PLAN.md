@@ -877,9 +877,180 @@ Walk through the complete remediation flow:
 
 ## Phase 11 — External Calls
 
-> Detailed step planning will be done before this phase begins. Spec reference: `SPEC.md § Future Phases — Phase 7`.
+> Spec reference: `SPEC.md § Future Phases — Phase 7`.
 
-**Goal:** Optionally enrich the dashboard with data from public APIs (macOS version checks, CVE lookups). User-configurable opt-in required — external calls must never happen without explicit user consent.
+**Goal:** Add a macOS Version signal that compares the current OS version against the latest Apple release. External calls are disabled by default; the user opts in via `EXTERNAL_CALLS=1`. CVE lookups are explicitly out of scope for this phase.
+
+**Scope decision:** One signal only — macOS version currency. CVE lookups require per-signal NVD/OSV queries and a caching strategy; they belong in a future iteration once the external call infrastructure is proven.
+
+**Data source:** Two candidates to evaluate in Step 11.1:
+- **Apple GDMF** (`https://gdmf.apple.com/v2/pmv`) — Apple's authoritative feed used by MDM solutions. Returns JSON listing the latest public macOS versions by major release train.
+- **Sofa Feed** (`https://sofa.macadmins.io/v1/macos_data_feed.json`) — community-maintained, richer metadata (security notes, CVEs), more developer-friendly JSON shape.
+
+**Opt-in mechanism:** `EXTERNAL_CALLS=1` environment variable (consistent with `PORT` and `REFRESH_INTERVAL`). When not set, external collectors are not registered and their cards do not appear — no stub, no placeholder. When enabled, a startup log line confirms it.
+
+**Architecture:** External collectors live in `src/collectors/external.py`. `run_all_collectors()` gains an `external: bool` parameter; `app.py` passes it based on the env var. This keeps all startup configuration in `app.py` and avoids side effects at import time.
+
+**HTTP:** `urllib.request` from the stdlib — no new dependency. Fixed 10s timeout. Any network error or timeout returns `UNKNOWN` with a descriptive message; never crashes or returns HTTP 500.
+
+**Privacy constraint:** The version check is a plain `GET` request. No machine-identifying data is transmitted beyond a standard `User-Agent` header. This must be verified in Step 11.1 and documented in README.
+
+**Latency note:** When `EXTERNAL_CALLS=1` is set, page load blocks until the HTTP call returns (up to 10s on failure). This is acceptable for a personal on-demand dashboard.
+
+---
+
+### Step 11.1 — Verify the version API and privacy model
+
+Test both candidate APIs and choose one. For each:
+
+```zsh
+# GDMF
+curl -s "https://gdmf.apple.com/v2/pmv" | python3 -m json.tool | head -60
+
+# Sofa Feed
+curl -s "https://sofa.macadmins.io/v1/macos_data_feed.json" | python3 -m json.tool | head -80
+```
+
+For the chosen API, confirm:
+1. The JSON shape is stable enough to parse reliably (field names, nesting)
+2. The response includes at minimum: the latest macOS version string and release date
+3. No identifying data is sent in the request (inspect with `curl -v`)
+4. The response includes the current major release train (macOS 15 / Sequoia at time of writing)
+
+Also confirm the current macOS version command:
+```zsh
+sw_vers -productVersion   # e.g., "15.5"
+sw_vers -buildVersion     # e.g., "24F74"
+```
+
+Document the chosen API, the full response shape, and the request headers in `docs/cli_verification.md` under a new `## Phase 11 — External Calls` heading.
+
+**Validation:** Both APIs return parseable JSON. Chosen API identified. Request headers confirmed to contain no machine-identifying data. Results recorded.
+
+---
+
+### Step 11.2 — Design the version comparison logic
+
+Determine the status mapping:
+
+| Current vs latest | Status | Rationale |
+|-------------------|--------|-----------|
+| Current version = latest in its release train | PASS | Machine is fully up to date |
+| Minor update available (e.g., 15.4 → 15.5) | WARN | Update available; not a security emergency but worth knowing |
+| Running a prior major release (e.g., 14.x when 15.x is current) | FAIL | End-of-support risk; Apple typically stops backporting security patches |
+| API unreachable / timeout / parse failure | UNKNOWN | Degrade gracefully |
+
+Version comparison rules:
+- Use `tuple(int(x) for x in version.split('.'))` for reliable numeric comparison
+- Never assume fixed number of components (macOS versions are sometimes `X.Y`, sometimes `X.Y.Z`)
+- The "latest in its release train" concept: if on 15.x, compare only against the latest 15.x release (Apple does not force major upgrades)
+
+Document the chosen status mapping in `docs/cli_verification.md`.
+
+**Validation:** Logic table is clear and handles edge cases (two-part vs three-part versions, major vs minor comparison).
+
+---
+
+### Step 11.3 — Create `src/collectors/external.py`
+
+Implement `check_macos_version() -> dict`:
+
+```python
+import json
+import subprocess
+import urllib.request
+
+_VERSION_API = "https://..."   # URL chosen in Step 11.1
+_TIMEOUT = 10
+
+def _current_version() -> tuple[str, str | None]:
+    """Returns (version_string, error). Never raises."""
+    ...
+
+def _latest_version() -> tuple[str, str | None]:
+    """GET the version API, parse, return (version_string, error). Never raises."""
+    ...
+
+def check_macos_version() -> dict:
+    name = "macOS Version"
+    description = "Compares the current macOS version against the latest Apple release."
+    ...
+```
+
+Implementation rules:
+- `urllib.request.urlopen` with `timeout=_TIMEOUT`; wrap in `try/except` catching `urllib.error.URLError`, `socket.timeout`, `json.JSONDecodeError`, and bare `Exception`
+- Never `shell=True`
+- Raw output: show both current and latest version strings (e.g., `"Current: 15.4\nLatest:  15.5"`)
+- If current version cannot be read (subprocess failure): return UNKNOWN immediately without making the network call
+
+**Validation:** `python -c "from src.collectors.external import check_macos_version; import pprint; pprint.pprint(check_macos_version())"` returns a correctly structured dict with the right status for the current machine state.
+
+---
+
+### Step 11.4 — Register external collectors conditionally
+
+Update `src/collectors/__init__.py`:
+
+```python
+from .external import check_macos_version
+
+_EXTERNAL_COLLECTORS = [
+    check_macos_version,
+]
+
+def run_all_collectors(external: bool = False) -> list[dict]:
+    collectors = _COLLECTORS + (_EXTERNAL_COLLECTORS if external else [])
+    return [fn() for fn in collectors]
+```
+
+Update `src/app.py`:
+- Read `EXTERNAL_CALLS` at startup: any value other than `"1"` means disabled
+- Store as `app.config["EXTERNAL_CALLS"]`
+- Pass to `run_all_collectors(external=app.config["EXTERNAL_CALLS"])`
+- Add to the startup log line: `", external calls: on"` / `", external calls: off"`
+
+**Validation:** Launch with `EXTERNAL_CALLS=1` — macOS Version card appears. Launch without — card absent. No regressions on the 13 existing cards.
+
+---
+
+### Step 11.5 — End-to-end test
+
+1. Launch with `EXTERNAL_CALLS=1 .venv/bin/python src/app.py` — confirm startup log says "external calls: on"
+2. Dashboard loads — confirm macOS Version card appears, shows correct current and latest versions in raw output, status is PASS or WARN as expected
+3. Launch without `EXTERNAL_CALLS` — confirm macOS Version card is absent, 13 other cards load normally
+4. Simulate API failure: temporarily patch `_VERSION_API` to a bad URL, reload — confirm UNKNOWN, no crash, no HTTP 500
+5. `curl -s -X POST http://127.0.0.1:8000/fix/macOS%20Version` — confirm 404 JSON (no remediation for this signal)
+
+**Validation:** All five steps complete without error.
+
+---
+
+### Step 11.6 — Update README and documentation
+
+- Add `macOS Version` to the Signals monitored table under a new `### External (opt-in)` subsection
+- Add `EXTERNAL_CALLS` to the Environment variables table: default `""` (disabled), `"1"` to enable
+- Add a `## Privacy` section (or update the existing prose) explaining: when `EXTERNAL_CALLS=1`, the dashboard makes one GET request per page load to [API URL]; no machine-identifying data is sent; the response is only used to compare version strings
+- Update Known Limitations to remove or update the "Read-only" note if still present
+
+**Validation:** README accurately describes the opt-in mechanism, the API called, and the privacy model.
+
+---
+
+### Phase 11 Integration Validation
+
+- [ ] `EXTERNAL_CALLS=1` env var enables the macOS Version card
+- [ ] Without `EXTERNAL_CALLS=1`, macOS Version card does not appear (no stub or placeholder)
+- [ ] Card shows correct current macOS version in raw output
+- [ ] Card shows PASS when running the latest release in the current major train
+- [ ] Card shows WARN when a minor update is available
+- [ ] Card shows FAIL when running a prior major release
+- [ ] Network error or timeout returns UNKNOWN, not a crash or HTTP 500
+- [ ] Timeout is ≤ 10s — page load does not block indefinitely on failure
+- [ ] GET request sends no machine-identifying data (verified via `curl -v`)
+- [ ] Startup log states whether external calls are enabled
+- [ ] All 13 existing cards render correctly with and without `EXTERNAL_CALLS=1`
+- [ ] `POST /fix/macOS Version` returns HTTP 404 JSON
+- [ ] README documents the env var, the API endpoint, and the privacy model
 
 ---
 
