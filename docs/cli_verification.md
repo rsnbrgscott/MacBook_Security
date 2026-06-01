@@ -677,4 +677,24 @@ Reasons: Apple-authoritative, no identifying data in request, stable JSON shape 
 6. Deduplicate version tuples before comparison (GDMF has duplicate entries)
 
 **Expected result on this machine (26.5 vs 26.5.1 latest):** WARN
-- State was restored to original (firewall disabled, stealth off) after verification to give Step 10.5 a clean FAIL baseline to test from
+
+---
+
+## Phase 12 — Alerting
+
+Recorded on macOS 26.5 (build 25F71), Apple Silicon, 2026-06-01.
+
+### osascript display notification
+
+**Command:**
+```zsh
+osascript -e 'display notification "FileVault is off" with title "Security Alert: FileVault"'
+```
+
+**Result:** exit 0, empty stdout, notification banner appeared in top-right corner. No permission dialog required.
+
+**Key findings:**
+- `display notification` works without any TCC permission on this machine
+- Exit 0 with no output on success
+- Title and message are separate AppleScript string arguments, both delimited by `"`
+- Double quotes inside the message would break the AppleScript literal — sanitise by replacing `"` with `'` before interpolation

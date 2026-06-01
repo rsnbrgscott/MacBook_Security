@@ -134,6 +134,7 @@ MacBook_Security/
 | `PORT` | `8000` | Port the server listens on |
 | `REFRESH_INTERVAL` | `0` | Auto-refresh interval in seconds. `0` disables auto-refresh (on-demand only). Any positive integer enables the countdown and automatic page reload. |
 | `EXTERNAL_CALLS` | `""` | Set to `1` to enable opt-in signals that make outbound network requests (currently: macOS Version check). |
+| `ALERT_INTERVAL` | `0` | Polling interval for background alerting, in seconds. `0` disables alerting. Any positive integer starts a background thread that checks all signals at that interval and fires a macOS notification on any status change. |
 | `FLASK_DEBUG` | — | Must not be set — the app will refuse to start if it is |
 
 To enable auto-refresh every 30 seconds:
@@ -147,6 +148,18 @@ To enable the macOS version check:
 ```zsh
 EXTERNAL_CALLS=1 .venv/bin/python src/app.py
 ```
+
+To enable background alerting (check every 5 minutes):
+
+```zsh
+ALERT_INTERVAL=300 .venv/bin/python src/app.py
+```
+
+## Alerting
+
+When `ALERT_INTERVAL` is set to a positive integer, the app runs a background thread that calls all collectors on that interval and fires a macOS notification banner whenever any signal changes status — in either direction (e.g., PASS→FAIL, FAIL→PASS, PASS→WARN).
+
+The first poll after startup silently initialises state; no notifications fire until the second poll. If the app is restarted, state resets and the first poll is again silent. Notification delivery uses `osascript display notification` — no third-party dependencies and no TCC permission required.
 
 ## Privacy
 

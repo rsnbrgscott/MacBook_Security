@@ -16,15 +16,15 @@ app = Flask(
 )
 
 
-def _get_refresh_interval() -> int:
-    raw = os.environ.get("REFRESH_INTERVAL", "0").strip()
+def _get_int_env(name: str) -> int:
+    raw = os.environ.get(name, "0").strip()
     try:
         value = int(raw)
     except ValueError:
-        print(f"ERROR: REFRESH_INTERVAL must be a non-negative integer, got {raw!r}.", file=sys.stderr)
+        print(f"ERROR: {name} must be a non-negative integer, got {raw!r}.", file=sys.stderr)
         sys.exit(1)
     if value < 0:
-        print(f"ERROR: REFRESH_INTERVAL must be >= 0, got {value}.", file=sys.stderr)
+        print(f"ERROR: {name} must be >= 0, got {value}.", file=sys.stderr)
         sys.exit(1)
     return value
 
@@ -52,12 +52,19 @@ if __name__ == "__main__":
         print("ERROR: FLASK_DEBUG is set. This dashboard does not run in debug mode.", file=sys.stderr)
         sys.exit(1)
 
-    app.config["REFRESH_INTERVAL"] = _get_refresh_interval()
+    app.config["REFRESH_INTERVAL"] = _get_int_env("REFRESH_INTERVAL")
+    app.config["ALERT_INTERVAL"] = _get_int_env("ALERT_INTERVAL")
     app.config["EXTERNAL_CALLS"] = os.environ.get("EXTERNAL_CALLS", "").strip() == "1"
     port = int(os.environ.get("PORT", 8000))
 
+    if app.config["ALERT_INTERVAL"] > 0:
+        from alerting import start_alerter
+        start_alerter(app.config["ALERT_INTERVAL"], external=app.config["EXTERNAL_CALLS"])
+
     interval = app.config["REFRESH_INTERVAL"]
+    alert = app.config["ALERT_INTERVAL"]
     refresh_note = f", auto-refresh every {interval}s" if interval else ", on-demand refresh"
     external_note = ", external calls: on" if app.config["EXTERNAL_CALLS"] else ", external calls: off"
-    print(f"Dashboard running at http://127.0.0.1:{port} — local access only{refresh_note}{external_note}")
+    alert_note = f", alerting: every {alert}s" if alert else ", alerting: off"
+    print(f"Dashboard running at http://127.0.0.1:{port} — local access only{refresh_note}{external_note}{alert_note}")
     app.run(host="127.0.0.1", port=port, debug=False)

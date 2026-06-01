@@ -1056,9 +1056,85 @@ Update `src/app.py`:
 
 ## Phase 12 — Alerting
 
-> Detailed step planning will be done before this phase begins. Spec reference: `SPEC.md § Future Phases — Phase 8`.
+Spec reference: `SPEC.md § Future Phases — Phase 8`.
 
-**Goal:** Notify the user when a signal changes state (e.g., FileVault turns off). macOS native notifications preferred.
+**Goal:** Notify the user when a signal changes state. A background polling thread runs `run_all_collectors()` on a configurable interval and fires a macOS native notification for any status transition in either direction. Opt-in via `ALERT_INTERVAL` env var; disabled by default. State is in-memory only (reset on restart; first poll is always silent).
+
+**Architecture:**
+- New module `src/alerting/` — thread management, in-memory state, change detection
+- `src/alerting/notifier.py` — `send_notification()` via `osascript display notification`
+- `app.py` reads `ALERT_INTERVAL`, starts alerter thread at startup if > 0
+
+---
+
+### Step 12.1 — Verify the notification command ✅
+
+```zsh
+osascript -e 'display notification "FileVault is off" with title "Security Alert: FileVault"'
+```
+
+Exit 0, notification banner appeared. No permission dialog required. Output recorded in `docs/cli_verification.md § Phase 12`.
+
+---
+
+### Step 12.2 — Create `src/alerting/notifier.py` ✅
+
+`send_notification(title, message)` wraps `osascript display notification`. Sanitises `"` → `'` in both arguments. Swallows all exceptions so notification failure never crashes the background thread.
+
+**Validation:** Import and call `send_notification("Test", "hello")` — notification appears.
+
+---
+
+### Step 12.3 — Create `src/alerting/__init__.py` ✅
+
+`start_alerter(interval, external)` spawns a daemon thread. Thread calls `run_all_collectors()` every `interval` seconds. First poll: `old_status is None` → state initialised, no notifications. Subsequent polls: any changed signal fires one notification.
+
+**Validation:** Import and inspect the module — no errors.
+
+---
+
+### Step 12.4 — Update `src/app.py` ✅
+
+- Refactored `_get_refresh_interval()` into generic `_get_int_env(name)` used by both `REFRESH_INTERVAL` and `ALERT_INTERVAL`
+- Reads `ALERT_INTERVAL`; if > 0, calls `start_alerter()` before Flask starts serving
+- Startup log line now includes `", alerting: every {n}s"` or `", alerting: off"`
+
+**Validation:** `ALERT_INTERVAL=60` → startup log shows "alerting: every 60s". Default → "alerting: off". Invalid value → clear error + exit 1.
+
+---
+
+### Step 12.5 — End-to-end test ✅
+
+1. `ALERT_INTERVAL=60` → startup log correct; page loads at 200
+2. Default launch → "alerting: off" in startup log
+3. `ALERT_INTERVAL=abc` → clear error message, exit 1
+4. `ALERT_INTERVAL=0` → "alerting: off", no thread started
+
+---
+
+### Step 12.6 — Update README and documentation ✅
+
+- Added `ALERT_INTERVAL` to the Environment Variables table
+- Added `## Alerting` section explaining all-transitions behaviour, silent first poll, and osascript delivery
+- Added example launch command
+- Recorded Phase 12 verification in `docs/cli_verification.md`
+
+---
+
+### Phase 12 Integration Validation
+
+- [x] `ALERT_INTERVAL=60` starts alerter (startup log says "alerting: every 60s")
+- [x] First poll does not fire any notification (state initialised silently)
+- [ ] Status change on second+ poll fires one macOS notification per changed signal
+- [ ] All transitions (PASS→FAIL, FAIL→PASS, PASS→WARN, WARN→PASS, any→UNKNOWN) generate a notification
+- [ ] Unchanged signals produce no notification
+- [x] Background thread is daemon — `Ctrl-C` exits cleanly
+- [ ] Exception in background thread does not crash the app or break page loads
+- [x] `ALERT_INTERVAL=abc` exits with a clear error message
+- [x] `ALERT_INTERVAL=0` (default): startup log says "alerting: off", no thread started
+- [x] Page loads work normally with alerting running (no deadlock, no slowdown)
+- [ ] External signals (macOS Version) included in alerts when both `ALERT_INTERVAL` and `EXTERNAL_CALLS` are set
+- [x] README documents `ALERT_INTERVAL`; startup log reflects current config
 
 ---
 
