@@ -207,6 +207,120 @@ body {
   cursor: not-allowed;
 }
 
+/* ── Nav link ──────────────────────────────────────────────────────────── */
+.nav-link {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: var(--radius);
+  transition: color 0.15s ease;
+}
+
+.nav-link:hover {
+  color: var(--text-primary);
+}
+
+.nav-link--active {
+  color: var(--text-primary);
+}
+
+/* ── History page ──────────────────────────────────────────────────────── */
+.history-main {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.history-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+
+.history-subtitle {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+}
+
+.history-empty {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.history-empty a {
+  color: var(--text-primary);
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.history-table th {
+  text-align: left;
+  padding: 0.6rem 1rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--bg-card-border);
+}
+
+.history-table td {
+  padding: 0.7rem 1rem;
+  vertical-align: top;
+  border-bottom: 1px solid var(--bg-card-border);
+}
+
+.history-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.ht-name {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.ht-changed {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ht-none {
+  color: var(--text-muted);
+}
+
+.ht-transition {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.3rem;
+}
+
+.ht-transition:last-child {
+  margin-bottom: 0;
+}
+
+.ht-arrow {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.ht-when {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.badge--sm {
+  padding: 0.1rem 0.45rem;
+  font-size: 0.65rem;
+}
+
 /* ── Responsive ────────────────────────────────────────────────────────── */
 @media (max-width: 480px) {
   .page-header {

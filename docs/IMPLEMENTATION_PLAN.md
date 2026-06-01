@@ -1140,9 +1140,98 @@ Exit 0, notification banner appeared. No permission dialog required. Output reco
 
 ## Phase 13 — History & Trends
 
-> Detailed step planning will be done before this phase begins. Spec reference: `SPEC.md § Future Phases — Phase 9`.
+Spec reference: `SPEC.md § Future Phases — Phase 9`.
 
-**Goal:** Persist check results to a local SQLite database and display a trend view showing how signals have changed over time.
+**Goal:** Persist signal results to a local SQLite database and display a state-change log at `/history` showing when each signal last changed status and its recent transitions. Only status transitions are stored (not every identical snapshot). Retention is 30 days.
+
+**Architecture:**
+- New module `src/history/` — `init_db()`, `store_snapshot()`, `get_summary()`
+- DB at `data/history.db` (auto-created; `data/` in `.gitignore`)
+- `store_snapshot()` called from the Flask `/` route and from the alerting thread's poll loop
+- New route `GET /history` renders `templates/history.html`
+
+---
+
+### Step 13.1 — Verify SQLite availability ✅
+
+```zsh
+.venv/bin/python -c "import sqlite3; print(sqlite3.sqlite_version)"
+# → 3.53.1
+```
+
+sqlite3 is stdlib — no new dependency. Recorded in `docs/cli_verification.md § Phase 13`.
+
+---
+
+### Step 13.2 — Create `src/history/__init__.py` ✅
+
+- `init_db()` — creates `data/history.db` and schema; called once at app startup
+- `store_snapshot(results)` — transition-only writes; 30-day pruning on each call; thread-safe via `threading.Lock`
+- `_relative_time(ts)` — formats Unix timestamp as "2 hours ago", "3 days ago", etc.
+- `get_summary()` — returns list of per-signal dicts with `name`, `last_status`, `last_changed`, `transitions` (last 5, pre-formatted)
+
+**Validation:** 2-call test confirms transition-only behaviour — 13 rows after two loads with identical statuses. ✅
+
+---
+
+### Step 13.3 — Update `src/app.py` ✅
+
+- Import `init_db`, `store_snapshot`, `get_summary` from `history`
+- Call `init_db()` at startup (before alerter thread starts)
+- Call `store_snapshot(signals)` in `/` route after collecting
+- Add `GET /history` route: `render_template("history.html", summary=get_summary())`
+
+---
+
+### Step 13.4 — Update `src/alerting/__init__.py` ✅
+
+In `_poll_loop`, after `_process(results)`, import and call `store_snapshot(results)` inside a try/except so a DB error never kills the alert thread.
+
+---
+
+### Step 13.5 — Create `templates/history.html` ✅
+
+State-change log table: Signal | Current Status | Last Changed | Recent Transitions. Empty state with link to dashboard if no history recorded. Matching dark-mode style.
+
+---
+
+### Step 13.6 — Update templates and CSS ✅
+
+- `dashboard.html`: added "History" nav link in header
+- `style.css`: `.nav-link`, `.history-table`, `.ht-*`, `.badge--sm` styles
+
+---
+
+### Step 13.7 — Add `data/` to `.gitignore` ✅
+
+---
+
+### Step 13.8 — End-to-end test ✅
+
+- First load: 13 rows written, one per signal
+- Second load (same statuses): 0 new rows (transition-only confirmed)
+- `/history` returns 200, renders table with "no changes recorded" for all signals (correct — no transitions yet)
+
+---
+
+### Step 13.9 — Update README and documentation ✅
+
+See README: `/history` route, DB location, retention policy, project structure updated.
+
+---
+
+### Phase 13 Integration Validation
+
+- [x] `data/history.db` created automatically on first launch
+- [x] First dashboard load writes 13 initial snapshot rows
+- [x] Second load with same statuses writes 0 new rows (transition-only)
+- [x] `/history` renders correctly — table with signal rows, "no changes recorded" for unmodified signals
+- [ ] Status change on page load writes new row, transition appears in `/history`
+- [ ] Alert thread writes transitions to DB when `ALERT_INTERVAL` is set
+- [x] DB not checked into git (`data/` in `.gitignore`)
+- [x] Rows older than 30 days are pruned on each write
+- [x] DB error / `_conn is None` does not crash page loads or alert thread
+- [x] README documents `/history` route and `data/history.db`
 
 ---
 

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Signal History — MacBook Security Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="page-header">
+    <h1 class="page-title">MacBook Security Dashboard</h1>
+    <nav class="header-controls">
+      <a class="nav-link" href="/">Dashboard</a>
+      <a class="nav-link nav-link--active" href="/history">History</a>
+    </nav>
+  </header>
+
+  <main class="history-main">
+    <h2 class="history-title">Signal History</h2>
+    <p class="history-subtitle">Status transitions recorded over the past 30 days. Only changes are stored — repeated identical statuses are not duplicated.</p>
+
+    {% if summary %}
+    <table class="history-table">
+      <thead>
+        <tr>
+          <th>Signal</th>
+          <th>Current Status</th>
+          <th>Last Changed</th>
+          <th>Recent Transitions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in summary %}
+        <tr>
+          <td class="ht-name">{{ row.name }}</td>
+          <td class="ht-status">
+            <span class="badge badge--{{ row.last_status | lower }}">{{ row.last_status }}</span>
+          </td>
+          <td class="ht-changed">
+            {% if row.last_changed %}{{ row.last_changed }}{% else %}<span class="ht-none">no changes recorded</span>{% endif %}
+          </td>
+          <td class="ht-transitions">
+            {% if row.transitions %}
+              {% for t in row.transitions | reverse %}
+              <div class="ht-transition">
+                <span class="badge badge--{{ t.from_status | lower }} badge--sm">{{ t.from_status }}</span>
+                <span class="ht-arrow">→</span>
+                <span class="badge badge--{{ t.to_status | lower }} badge--sm">{{ t.to_status }}</span>
+                <span class="ht-when">{{ t.when }}</span>
+              </div>
+              {% endfor %}
+            {% else %}
+              <span class="ht-none">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="history-empty">No history recorded yet — <a href="/">load the dashboard</a> to capture a snapshot.</p>
+    {% endif %}
+  </main>
+</body>
+</html>

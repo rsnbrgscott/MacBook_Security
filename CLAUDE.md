@@ -35,8 +35,9 @@ Each phase follows this sequence:
 - Phase 10: Remediations — Fix buttons for Application Firewall (FAIL) and Stealth Mode (WARN)
 - Phase 11: External Calls — macOS Version check via Apple GDMF API (opt-in, `EXTERNAL_CALLS=1`)
 - Phase 12: Alerting — background polling thread, macOS notifications on any status change (opt-in, `ALERT_INTERVAL=<seconds>`)
+- Phase 13: History & Trends — SQLite persistence (`data/history.db`), transition-only writes, `/history` state-change log page
 
-**13 signals (always-on) + 1 opt-in signal.** All phases 1–12 are committed.
+**13 signals (always-on) + 1 opt-in signal.** All phases 1–13 are committed.
 
 **Next phases (stub only, not started):**
 - Phase 12: Alerting (macOS native notifications on state change)

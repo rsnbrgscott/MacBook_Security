@@ -20,6 +20,8 @@ def _poll_loop(interval: int, external: bool) -> None:
         try:
             results = run_all_collectors(external=external)
             _process(results)
+            from history import store_snapshot
+            store_snapshot(results)
         except Exception:
             pass
         time.sleep(interval)

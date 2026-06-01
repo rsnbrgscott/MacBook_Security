@@ -93,7 +93,7 @@ The fix runs under your own account via `osascript` with administrator privilege
 ## Known limitations
 
 - **Apple Silicon only.** The Secure Boot check uses `system_profiler SPiBridgeDataType`, which is not available on Intel Macs.
-- **No persistence.** Data is collected fresh on every page load and is never written to disk.
+- **History is local only.** Signal history is stored in `data/history.db` (SQLite, auto-created). Only status transitions are recorded; identical consecutive statuses are not duplicated. Data older than 30 days is pruned automatically.
 - **Most signals have no Fix button.** SIP and Secure Boot can only be toggled in Recovery Mode and cannot be changed from a running OS. FileVault enrollment generates a recovery key and requires interactive input — use System Settings instead. Gatekeeper, Listening Services, persistence signals, and authentication signals do not have automated remediations.
 - **Local access only.** The server binds to `127.0.0.1` and is not reachable from other devices on the network.
 - **Listening Services shows current-user processes only.** `lsof` runs without elevated privileges, so system-owned processes (running as root) do not appear in the Listening Services output.
@@ -108,6 +108,8 @@ MacBook_Security/
 │   ├── SPEC.md                  # Full project specification
 │   ├── IMPLEMENTATION_PLAN.md   # Phased build plan with validation checklists
 │   └── Security_Monitoring_Notes.md
+├── data/
+│   └── history.db               # SQLite history (auto-created; gitignored)
 ├── src/
 │   ├── collectors/
 │   │   ├── __init__.py          # Collector registry (run_all_collectors)
@@ -116,16 +118,28 @@ MacBook_Security/
 │   │   ├── persistence.py       # User/Global Launch Agents, Launch Daemons, Login Items
 │   │   ├── auth.py              # Failed Logins, SSH Authorized Keys
 │   │   └── external.py          # macOS Version (opt-in, requires EXTERNAL_CALLS=1)
+│   ├── alerting/
+│   │   ├── __init__.py          # start_alerter() — background polling thread
+│   │   └── notifier.py          # send_notification() via osascript
+│   ├── history/
+│   │   └── __init__.py          # init_db(), store_snapshot(), get_summary()
 │   ├── remediations/
 │   │   ├── __init__.py          # REMEDIATIONS registry (signal → label, cmd, applies_to)
 │   │   └── executor.py          # run_fix() — executes fix via osascript with admin privileges
 │   └── app.py                   # Flask entry point
 ├── templates/
-│   └── dashboard.html           # Jinja2 dashboard template
+│   ├── dashboard.html           # Jinja2 dashboard template
+│   └── history.html             # Signal history / state-change log
 ├── static/
 │   └── style.css                # Dashboard stylesheet
 └── requirements.txt
 ```
+
+## History
+
+Open `http://127.0.0.1:8000/history` to see a state-change log for all signals. The table shows each signal's current status, when it last changed, and up to five recent transitions (e.g., PASS → FAIL).
+
+History is stored in `data/history.db` (created automatically on first launch). Only status transitions are written — if a signal's status is unchanged between checks, nothing is stored. Records older than 30 days are pruned automatically. The file is gitignored and never leaves the machine.
 
 ## Environment variables
 

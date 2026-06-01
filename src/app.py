@@ -4,6 +4,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template
 from collectors import run_all_collectors
+from history import init_db, store_snapshot, get_summary
 from remediations import REMEDIATIONS
 from remediations.executor import run_fix
 
@@ -32,12 +33,18 @@ def _get_int_env(name: str) -> int:
 @app.route("/")
 def dashboard():
     signals = run_all_collectors(external=app.config["EXTERNAL_CALLS"])
+    store_snapshot(signals)
     return render_template(
         "dashboard.html",
         signals=signals,
         refresh_interval=app.config["REFRESH_INTERVAL"],
         remediations=REMEDIATIONS,
     )
+
+
+@app.route("/history")
+def history_view():
+    return render_template("history.html", summary=get_summary())
 
 
 @app.route("/fix/<path:signal_name>", methods=["POST"])
@@ -56,6 +63,8 @@ if __name__ == "__main__":
     app.config["ALERT_INTERVAL"] = _get_int_env("ALERT_INTERVAL")
     app.config["EXTERNAL_CALLS"] = os.environ.get("EXTERNAL_CALLS", "").strip() == "1"
     port = int(os.environ.get("PORT", 8000))
+
+    init_db()
 
     if app.config["ALERT_INTERVAL"] > 0:
         from alerting import start_alerter

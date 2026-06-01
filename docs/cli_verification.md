@@ -698,3 +698,22 @@ osascript -e 'display notification "FileVault is off" with title "Security Alert
 - Exit 0 with no output on success
 - Title and message are separate AppleScript string arguments, both delimited by `"`
 - Double quotes inside the message would break the AppleScript literal — sanitise by replacing `"` with `'` before interpolation
+
+---
+
+## Phase 13 — History & Trends
+
+Recorded on macOS 26.5 (build 25F71), Apple Silicon, 2026-06-01.
+
+### sqlite3 availability
+
+```
+$ .venv/bin/python -c "import sqlite3; print(sqlite3.sqlite_version)"
+3.53.1
+```
+
+sqlite3 is part of the Python stdlib — no additional dependency required.
+
+### Transition-only write verification
+
+Two consecutive `store_snapshot()` calls with 13 signals, second call with identical statuses → only 13 rows written total (no duplicates). Verified by querying `data/history.db` directly.
