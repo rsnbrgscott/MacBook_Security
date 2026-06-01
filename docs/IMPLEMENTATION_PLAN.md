@@ -268,7 +268,7 @@ Test by temporarily breaking one collector (e.g., change the command name to som
 
 ---
 
-### Step 5.3 — Finalize README
+### Step 5.3 — Finalize README ✅
 
 Update `README.md` to include:
 - Prerequisites (Python 3.x, macOS Apple Silicon)
