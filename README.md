@@ -49,6 +49,17 @@ PORT=9000 .venv/bin/python src/app.py
 | **Stealth Mode** | `socketfilterfw --getstealthmode` | Prevents the machine from responding to network probe requests such as ICMP ping. If off, the machine is more easily discovered during a network scan. |
 | **Listening Services** | `lsof -iTCP -sTCP:LISTEN -P -n` | Shows TCP services accepting inbound connections. Services bound to all interfaces (`*`) are reachable from the local network, not just from this machine. |
 
+### Persistence
+
+WARN on persistence signals means items are present — that is expected for most systems. Review the listed entries to confirm they belong to software you installed.
+
+| Signal | What it checks | Why it matters |
+|--------|---------------|----------------|
+| **User Launch Agents** | `~/Library/LaunchAgents/` | Per-user background tasks that run at login. Any `.plist` here launches a process automatically. Unexpected entries may indicate unwanted software. |
+| **Global Launch Agents** | `/Library/LaunchAgents/` | System-wide background tasks installed by third-party software. Apple's own entries (`com.apple.*`) are filtered out — only third-party entries are shown. |
+| **Launch Daemons** | `/Library/LaunchDaemons/` | Privileged background services that run as root. Apple's own entries are filtered out. Unexpected third-party daemons warrant review. |
+| **Login Items** | `osascript` / System Events | Applications and helpers registered to launch at login. Shown as a list — review for anything you don't recognise. |
+
 Status values: **PASS** (green) · **FAIL** (red) · **WARN** (amber) · **UNKNOWN** (yellow, check failed or output unrecognized)
 
 ## Known limitations
@@ -58,7 +69,7 @@ Status values: **PASS** (green) · **FAIL** (red) · **WARN** (amber) · **UNKNO
 - **No persistence.** Data is collected fresh on every page load and is never written to disk.
 - **Local access only.** The server binds to `127.0.0.1` and is not reachable from other devices on the network.
 - **Listening Services shows current-user processes only.** `lsof` runs without elevated privileges, so system-owned processes (running as root) do not appear in the Listening Services output.
-- **Persistence, authentication, and other signal categories are planned.** See `docs/SPEC.md` for the full roadmap.
+- **Authentication and other signal categories are planned.** See `docs/SPEC.md` for the full roadmap.
 
 ## Project structure
 
@@ -72,7 +83,8 @@ MacBook_Security/
 │   ├── collectors/
 │   │   ├── __init__.py          # Collector registry (run_all_collectors)
 │   │   ├── system_integrity.py  # SIP, Gatekeeper, FileVault, Secure Boot checks
-│   │   └── network.py           # Application Firewall, Stealth Mode, Listening Services
+│   │   ├── network.py           # Application Firewall, Stealth Mode, Listening Services
+│   │   └── persistence.py       # User/Global Launch Agents, Launch Daemons, Login Items
 │   └── app.py                   # Flask entry point
 ├── templates/
 │   └── dashboard.html           # Jinja2 dashboard template

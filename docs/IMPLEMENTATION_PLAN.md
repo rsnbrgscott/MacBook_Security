@@ -466,11 +466,126 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000` in a brows
 
 ## Phase 8 — Persistence Signals
 
-> Detailed step planning will be done before this phase begins. Spec reference: `SPEC.md § Future Phases — Phase 4`.
+Spec reference: `SPEC.md § Future Phases — Phase 4`.
 
-**Goal:** Add launch agents/daemons and login items monitoring.
+**Goal:** Add a third signal category covering the most common macOS persistence mechanisms: launch agents, launch daemons, and login items. Each signal follows the same collector shape as prior phases: `name`, `description`, `status`, `raw`, `error`.
 
-**Planned signals:** `launchctl list`, `~/Library/LaunchAgents`, `/Library/LaunchAgents`, `/Library/LaunchDaemons`, login items.
+**Signals in scope:**
+
+| Signal | Source | PASS | WARN | UNKNOWN |
+|--------|--------|------|------|---------|
+| User Launch Agents | `~/Library/LaunchAgents/` | Directory empty | Any `.plist` files present | Directory unreadable |
+| Global Launch Agents | `/Library/LaunchAgents/` | Empty or Apple-only entries | Non-Apple entries present | Directory unreadable |
+| Launch Daemons | `/Library/LaunchDaemons/` | Empty or Apple-only entries | Non-Apple entries present | Directory unreadable |
+| Login Items | `osascript` or `sfltool dumpbtm` | No items registered | Items present | Command failed / permission denied |
+
+> **Why WARN and not FAIL for non-empty results:** Legitimate software (Homebrew updater, backup agents, printer drivers) routinely installs launch agents and daemons. A WARN badge means "items are present — review them," not "something is wrong." This distinction should be reflected in each card description.
+
+> **Non-Apple filtering:** For `/Library/LaunchAgents` and `/Library/LaunchDaemons`, entries with filenames prefixed `com.apple.` are expected Apple system items and are excluded from the WARN count. Only third-party entries trigger WARN.
+
+> **Implementation note:** Persistence signals read filesystem directories, not subprocess output. The collector module will use Python's `pathlib` directly rather than the `_run()` / `subprocess` pattern used in prior phases. Error handling uses `try/except OSError` instead of `TimeoutExpired` / `FileNotFoundError`.
+
+> **Login items:** The CLI approach varies by macOS version. `osascript -e 'tell application "System Events" to get the name of every login item'` works on older macOS but may require Automation permission on Ventura+. `sfltool dumpbtm` covers the Background Task Manager items added in Ventura. Step 8.1 determines which method works on this machine without a permission prompt.
+
+---
+
+### Step 8.1 — Verify data sources and resolve the privilege model ✅
+
+Without `sudo`, run and record the exact output of each candidate command and directory listing:
+
+| Source | Command / Path | Privilege needed |
+|--------|---------------|-----------------|
+| User launch agents | `ls ~/Library/LaunchAgents/` | None (user-owned) |
+| Global launch agents | `ls /Library/LaunchAgents/` | None (world-readable) |
+| Launch daemons | `ls /Library/LaunchDaemons/` | None (world-readable) |
+| Login items (legacy) | `osascript -e 'tell application "System Events" to get the name of every login item'` | TBD — may prompt |
+| Login items (modern) | `sfltool dumpbtm` | TBD — run and record |
+
+Decision rule for login items: use whichever method returns output without a permission prompt or TCC dialog. If neither works cleanly, document it as a known limitation and omit the Login Items card from this phase.
+
+Record all output in `docs/cli_verification.md` under a new `## Phase 8 — Persistence` heading.
+
+**Validation:** All chosen data sources return output without `sudo` or a permission dialog. Output recorded in `docs/cli_verification.md`.
+
+---
+
+### Step 8.2 — Write the persistence collector module ✅
+
+Create `src/collectors/persistence.py` with collector functions matching the number of viable signals confirmed in Step 8.1 (three minimum, four if login items is clean):
+
+```
+check_user_launch_agents()    → { name, description, status, raw, error }
+check_global_launch_agents()  → { name, description, status, raw, error }
+check_launch_daemons()        → { name, description, status, raw, error }
+check_login_items()           → { name, description, status, raw, error }  # if viable
+```
+
+**Status logic:**
+
+| Collector | PASS | WARN | UNKNOWN |
+|-----------|------|------|---------|
+| `check_user_launch_agents` | `~/Library/LaunchAgents/` empty or absent | Any `.plist` files present | `OSError` reading directory |
+| `check_global_launch_agents` | `/Library/LaunchAgents/` empty or only `com.apple.*` entries | Non-`com.apple.*` entries present | `OSError` reading directory |
+| `check_launch_daemons` | `/Library/LaunchDaemons/` empty or only `com.apple.*` entries | Non-`com.apple.*` entries present | `OSError` reading directory |
+| `check_login_items` | No items returned | One or more items returned | Command failed or permission denied |
+
+**`raw` field content:**
+- PASS: `"No entries found."` (or `"Apple system entries only."` for filtered directories)
+- WARN: newline-separated list of entry names
+- UNKNOWN: the exception or error message
+
+**Implementation rules:**
+- Use `pathlib.Path` for directory reads; no `subprocess` for directory signals
+- Wrap all filesystem access in `try/except OSError`; never raise
+- Login items (if included): use `subprocess.run()` via `_run()`, same as prior collectors
+- Card descriptions must communicate that WARN is informational, not a definitive failure
+
+**Validation:** Add a `__main__` block and run `.venv/bin/python src/collectors/persistence.py`. All functions return dicts with the correct keys; none raise an exception.
+
+---
+
+### Step 8.3 — Register persistence collectors ✅
+
+Update `src/collectors/__init__.py` to import and append the persistence collectors to `_COLLECTORS`. No changes to `app.py` or the template.
+
+**Validation:** `.venv/bin/python -c "from src.collectors import run_all_collectors; print(len(run_all_collectors()))"` prints `10` (or `11` if login items is included). All dicts contain the required keys.
+
+---
+
+### Step 8.4 — End-to-end dashboard check ✅
+
+Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000` in a browser.
+
+- Confirm all cards render (7 existing + 3 or 4 new)
+- Confirm badge colors match actual state on this machine
+- Force one persistence collector to fail (introduce an `OSError` by pointing at a nonexistent path); confirm it shows UNKNOWN and other cards are unaffected; restore
+
+**Validation:** All cards render with correct data and the forced failure degrades gracefully.
+
+---
+
+### Step 8.5 — Update README and documentation ✅
+
+- Add persistence signals to the "Signals monitored" section in `README.md` under a new `### Persistence` heading
+- Add a Known Limitations entry if login items were omitted (explaining why and which macOS version constraint applies)
+- Confirm `docs/cli_verification.md` has the Phase 8 section from Step 8.1
+
+**Validation:** README signals section has a Persistence subsection. `docs/cli_verification.md` has the Phase 8 section.
+
+---
+
+### Phase 8 Integration Validation
+
+- [x] All persistence collector functions return the correct dict shape
+- [x] `check_user_launch_agents` status reflects actual contents of `~/Library/LaunchAgents/`
+- [x] `check_global_launch_agents` filters `com.apple.*` entries correctly (Apple entries do not trigger WARN)
+- [x] `check_launch_daemons` filters `com.apple.*` entries correctly
+- [x] Login items signal included if viable, omitted with a documented limitation if not
+- [x] All new cards render in the dashboard with no layout regressions
+- [x] Badge colors are correct for all signals
+- [x] Forced persistence collector failure shows UNKNOWN; other cards unaffected
+- [x] No collector calls `sudo` — all data sources readable without elevated privileges
+- [x] README persistence section accurately describes each signal
 
 ---
 

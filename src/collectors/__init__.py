@@ -9,6 +9,12 @@ from .network import (
     check_stealth_mode,
     check_listening_ports,
 )
+from .persistence import (
+    check_user_launch_agents,
+    check_global_launch_agents,
+    check_launch_daemons,
+    check_login_items,
+)
 
 # To add a new signal category: import its check functions and append them here.
 # app.py never needs to change — it only calls run_all_collectors().
@@ -20,6 +26,10 @@ _COLLECTORS = [
     check_firewall,
     check_stealth_mode,
     check_listening_ports,
+    check_user_launch_agents,
+    check_global_launch_agents,
+    check_launch_daemons,
+    check_login_items,
 ]
 
 

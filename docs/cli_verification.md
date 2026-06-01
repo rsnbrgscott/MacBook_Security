@@ -215,3 +215,144 @@ Python    77997 scottrosenberg    3u  IPv4 0x5247f0ee079b664f      0t0  TCP 127.
 | Application Firewall | `socketfilterfw --getglobalstate` | No | disabled → FAIL |
 | Stealth Mode | `socketfilterfw --getstealthmode` | No | off → WARN |
 | Listening Services | `lsof -iTCP -sTCP:LISTEN -P -n` | No (partial) | external listeners present → WARN |
+
+---
+
+# CLI Verification — Persistence Signals
+
+Recorded during Phase 8, Step 8.1 on macOS (Apple Silicon, Mac15,9).
+These are the exact outputs used to write the parsers in Step 8.2.
+
+---
+
+## User Launch Agents — ~/Library/LaunchAgents/
+
+**Source:** `ls ~/Library/LaunchAgents/`
+**Privilege required:** None (user-owned directory)
+
+**Observed output:**
+```
+com.epson.epsvcp.plist
+com.google.GoogleUpdater.wake.plist
+com.google.keystone.agent.plist
+com.google.keystone.xpcservice.plist
+com.grammarly.ProjectLlama.Shepherd.plist
+com.grammarly.ProjectLlama.Uninstaller.plist
+com.grammarly.ProjectLlama.UpdateService.plist
+com.openai.atlas.agent-xpc.plist
+com.openai.atlas.update-helper.plist
+com.redhat.crc.daemon.plist
+homebrew.mxcl.ollama.plist
+org.virtualbox.vboxwebsrv.plist
+```
+
+**Parse strategy:**
+- PASS → directory is empty or does not exist
+- WARN → one or more `.plist` files are present
+- UNKNOWN → `OSError` reading the directory
+
+**Status on this machine:** 12 third-party entries present → WARN
+
+---
+
+## Global Launch Agents — /Library/LaunchAgents/
+
+**Source:** `ls /Library/LaunchAgents/`
+**Privilege required:** None (world-readable)
+
+**Observed output:**
+```
+com.adobe.ARMDCHelper.cc24aef4a1b90ed56a725c38014c95072f92651fb65e1bf9c8e43c37a23d420d.plist
+com.epson.Epson_Low_Ink_Reminder.launcher.plist
+com.epson.esua.launcher.plist
+com.epson.eventmanager.agent.plist
+com.epson.ijfax.FaxIOHelper.plist
+com.epson.RemotePrintIOHelper.plist
+com.epson.scannermonitor.plist
+com.mcafee.macvpn.plist
+com.mcafee.menulet.plist
+com.mcafee.registerfinderextension.plist
+com.mcafee.reporter.plist
+com.mcafee.uninstall.SystemExtension.plist
+com.microsoft.update.agent.plist
+us.zoom.updater.login.check.plist
+us.zoom.updater.plist
+```
+
+**Parse strategy:**
+- Filter out entries prefixed `com.apple.` (expected Apple system items)
+- PASS → directory is empty or only `com.apple.*` entries remain after filtering
+- WARN → one or more non-`com.apple.*` entries present
+- UNKNOWN → `OSError` reading the directory
+
+**Status on this machine:** 15 non-Apple entries (Adobe, Epson ×6, McAfee ×5, Microsoft, Zoom ×2) → WARN
+
+---
+
+## Launch Daemons — /Library/LaunchDaemons/
+
+**Source:** `ls /Library/LaunchDaemons/`
+**Privilege required:** None (world-readable)
+
+**Observed output:**
+```
+com.adobe.ARMDC.Communicator.plist
+com.adobe.ARMDC.SMJobBlessHelper.plist
+com.docker.socket.plist
+com.docker.vmnetd.plist
+com.epson.ijfax.FaxIODaemon.plist
+com.epson.RemotePrintIODaemon.plist
+com.github.containers.podman.helper-scottrosenberg.plist
+com.mcafee.CmacPatch.plist
+com.mcafee.cspd.plist
+com.mcafee.datupdate.plist
+com.mcafee.genutility.plist
+com.mcafee.mac.cloudsdkdaemon.plist
+com.mcafee.PeriodicScan.plist
+com.mcafee.productupdate.plist
+com.mcafee.ssm.ScanFactory.plist
+com.mcafee.ssm.ScanManager.plist
+com.mcafee.virusscan.fmpd.plist
+com.microsoft.autoupdate.helper.plist
+com.vagrant.vagrant-vmware-utility-stopper.plist
+com.vagrant.vagrant-vmware-utility.plist
+org.wireshark.ChmodBPF.plist
+us.zoom.ZoomDaemon.plist
+```
+
+**Parse strategy:** Same as Global Launch Agents — filter `com.apple.*`, WARN on any remainder.
+
+**Status on this machine:** 22 non-Apple entries (Adobe ×2, Docker ×2, Epson ×2, Podman, McAfee ×10, Microsoft, Vagrant ×2, Wireshark, Zoom) → WARN
+
+---
+
+## Login Items — osascript
+
+**Command:** `osascript -e 'tell application "System Events" to get the name of every login item'`
+**Privilege required:** None — no TCC dialog on this machine
+
+**Observed output:**
+```
+Acrobat Collaboration Synchronizer, GeminiAppLauncher, Podman Desktop, Amphetamine
+```
+
+**Parse strategy:**
+- Split on `, ` to get individual item names
+- PASS → output is empty (no login items)
+- WARN → one or more items returned
+- UNKNOWN → `osascript` exits non-zero or raises an exception
+
+**Status on this machine:** 4 items present → WARN
+
+> **Method selection:** `osascript` was chosen over `sfltool dumpbtm`. Both run without `sudo`, but `sfltool` output is verbose and structured for human inspection rather than programmatic parsing. `osascript` returns a clean comma-separated list directly usable in the collector.
+
+---
+
+## Summary — Persistence
+
+| Signal | Source | Root required? | Login items method | Status on this machine |
+|--------|--------|---------------|--------------------|----------------------|
+| User Launch Agents | `~/Library/LaunchAgents/` | No | — | 12 entries → WARN |
+| Global Launch Agents | `/Library/LaunchAgents/` | No | — | 15 non-Apple entries → WARN |
+| Launch Daemons | `/Library/LaunchDaemons/` | No | — | 22 non-Apple entries → WARN |
+| Login Items | `osascript` System Events | No | osascript (no TCC prompt) | 4 items → WARN |
