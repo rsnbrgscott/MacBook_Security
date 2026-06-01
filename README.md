@@ -71,11 +71,22 @@ WARN on authentication signals means activity was detected — review if unexpec
 
 Status values: **PASS** (green) · **FAIL** (red) · **WARN** (amber) · **UNKNOWN** (yellow, check failed or output unrecognized)
 
+## Remediations
+
+Two signals have a **Fix** button that enables the control with a single click. macOS will prompt for your administrator password before any change is made.
+
+| Signal | Fix action | Appears when |
+|--------|-----------|--------------|
+| **Application Firewall** | Enables the application firewall (`socketfilterfw --setglobalstate on`) | Status is FAIL |
+| **Stealth Mode** | Enables stealth mode (`socketfilterfw --setstealthmode on`) | Status is WARN |
+
+The fix runs under your own account via `osascript` with administrator privileges — no `sudoers` changes are required. Clicking Cancel in the password dialog leaves the setting unchanged.
+
 ## Known limitations
 
 - **Apple Silicon only.** The Secure Boot check uses `system_profiler SPiBridgeDataType`, which is not available on Intel Macs.
-- **Read-only.** The dashboard displays status only — it cannot enable FileVault, toggle Gatekeeper, or apply any fixes.
 - **No persistence.** Data is collected fresh on every page load and is never written to disk.
+- **Most signals have no Fix button.** SIP and Secure Boot can only be toggled in Recovery Mode and cannot be changed from a running OS. FileVault enrollment generates a recovery key and requires interactive input — use System Settings instead. Gatekeeper, Listening Services, persistence signals, and authentication signals do not have automated remediations.
 - **Local access only.** The server binds to `127.0.0.1` and is not reachable from other devices on the network.
 - **Listening Services shows current-user processes only.** `lsof` runs without elevated privileges, so system-owned processes (running as root) do not appear in the Listening Services output.
 - **Sudo activity is not monitored.** `sudo`'s audit record (the command that was run) is written to the BSM audit trail (`/var/audit/`), which requires root to read. The unified log only surfaces background system-level sudo calls (~500+ per day from daemons), which cannot be distinguished from user invocations. Deferred until a root-free data source is identified.
@@ -96,6 +107,9 @@ MacBook_Security/
 │   │   ├── network.py           # Application Firewall, Stealth Mode, Listening Services
 │   │   ├── persistence.py       # User/Global Launch Agents, Launch Daemons, Login Items
 │   │   └── auth.py              # Failed Logins, SSH Authorized Keys
+│   ├── remediations/
+│   │   ├── __init__.py          # REMEDIATIONS registry (signal → label, cmd, applies_to)
+│   │   └── executor.py          # run_fix() — executes fix via osascript with admin privileges
 │   └── app.py                   # Flask entry point
 ├── templates/
 │   └── dashboard.html           # Jinja2 dashboard template

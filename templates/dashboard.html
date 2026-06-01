@@ -31,9 +31,45 @@
       {% if signal.error %}
       <p class="signal-error">Error: {{ signal.error }}</p>
       {% endif %}
+      {% set fix = remediations.get(signal.name) %}
+      {% if fix and signal.status in fix.applies_to %}
+      <button class="fix-btn"
+              data-signal="{{ signal.name }}"
+              data-label="{{ fix.label }}">{{ fix.label }}</button>
+      {% endif %}
     </div>
     {% endfor %}
   </main>
+
+  <script>
+    (function () {
+      document.querySelectorAll('.fix-btn').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var signal = btn.dataset.signal;
+          var label = btn.dataset.label;
+          if (!confirm(label + '?\n\nmacOS will prompt for your password.')) return;
+          btn.disabled = true;
+          btn.textContent = 'Applying…';
+          fetch('/fix/' + encodeURIComponent(signal), { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (data.success) {
+                location.reload();
+              } else {
+                alert('Could not apply fix: ' + (data.error || 'Unknown error'));
+                btn.disabled = false;
+                btn.textContent = label;
+              }
+            })
+            .catch(function (err) {
+              alert('Request failed: ' + err);
+              btn.disabled = false;
+              btn.textContent = label;
+            });
+        });
+      });
+    })();
+  </script>
 
   {% if refresh_interval > 0 %}
   <script>

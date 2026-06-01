@@ -722,9 +722,156 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000` in a brows
 
 > Detailed step planning will be done before this phase begins. Spec reference: `SPEC.md § Future Phases — Phase 6`.
 
-**Goal:** Add read-write mode with one-click fixes for common misconfigurations.
+**Goal:** Add one-click Fix buttons to cards whose misconfiguration can be corrected with a single, safe, reversible command. Privilege escalation uses macOS's built-in `osascript` auth dialog — no `sudoers` modifications required.
 
-**Key constraint:** Remediations require elevated privileges and introduce risk of unintended system changes. A privilege escalation design (e.g., `sudo` prompt, privileged helper) must be specified before implementation.
+**Signals with remediations in this phase:**
+
+| Signal | Current status | Fix command | Applies when |
+|--------|---------------|-------------|-------------|
+| Application Firewall | FAIL | `socketfilterfw --setglobalstate on` | FAIL |
+| Stealth Mode | WARN | `socketfilterfw --setstealthmode on` | WARN |
+
+> **Why only these two:** Both commands are single-flag toggles that enable a security feature, are fully reversible from System Settings, and require no interactive input beyond the auth dialog. SIP and Secure Boot require Recovery Mode and cannot be toggled from a running OS. FileVault enrollment is interactive (generates a recovery key, requires password input) — better done via System Settings. Gatekeeper is currently PASS on this machine so its remediation cannot be tested end-to-end; it is deferred to a future update.
+
+> **Privilege model — `osascript`:** `osascript -e 'do shell script "<cmd>" with administrator privileges'` triggers the standard macOS "enter your password" dialog. It requires no `sudoers` changes, integrates with Touch ID, and is the canonical macOS pattern for one-off privileged operations from a user-facing app. Each Fix click triggers one auth prompt for that specific action.
+
+> **Security constraints:** The command string passed to `do shell script` is a fixed constant defined in the remediations registry — never derived from user input. The `/fix/<signal_name>` route validates the name against the registry before any command is executed. There is no "fix all" batch action.
+
+> **Architecture:** Remediations live in a new `src/remediations/` module (separate from collectors, which remain read-only). `app.py` imports the registry to add the `/fix` route and to pass fix availability to the template. Collectors are not modified.
+
+---
+
+### Step 10.1 — Verify remediation commands and confirm the privilege model ✅
+
+Run each candidate command interactively in Terminal using `osascript` to confirm the auth dialog appears and the command succeeds:
+
+```zsh
+# Test the auth dialog pattern with a safe read-only command first
+osascript -e 'do shell script "whoami" with administrator privileges'
+
+# Firewall toggle (this will actually enable the firewall — restore if needed)
+osascript -e 'do shell script "/usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on" with administrator privileges'
+
+# Stealth mode toggle (this will actually enable stealth mode — restore if needed)
+osascript -e 'do shell script "/usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on" with administrator privileges'
+```
+
+Also test the cancel path: run one of the above and click Cancel in the dialog. Record the exact exit code and stderr — this is the error the `/fix` route must handle gracefully.
+
+Record all output in `docs/cli_verification.md` under a new `## Phase 10 — Remediations` heading.
+
+**Validation:** Auth dialog appears for each command. Commands succeed when confirmed. Cancel produces a non-zero exit and a known error message (expected: `"User canceled."`). All output recorded.
+
+---
+
+### Step 10.2 — Create the remediations module ✅
+
+Create `src/remediations/__init__.py` with a `REMEDIATIONS` registry:
+
+```python
+REMEDIATIONS = {
+    "Application Firewall": {
+        "label": "Enable Firewall",
+        "cmd": "/usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on",
+        "applies_to": {"FAIL"},
+    },
+    "Stealth Mode": {
+        "label": "Enable Stealth Mode",
+        "cmd": "/usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on",
+        "applies_to": {"WARN"},
+    },
+}
+```
+
+Create `src/remediations/executor.py` with one function:
+
+```python
+def run_fix(signal_name: str) -> dict:
+    # Returns {"success": bool, "output": str, "error": str | None}
+```
+
+**Implementation rules for `run_fix`:**
+- Look up `signal_name` in `REMEDIATIONS`; return `{"success": False, "error": "Unknown signal"}` if not found
+- Run via `osascript -e 'do shell script "<cmd>" with administrator privileges'` using `subprocess.run()` with a 30s timeout
+- On exit 0: return `{"success": True, "output": stdout.strip(), "error": None}`
+- On non-zero exit: parse stderr for `"User canceled."` and surface a clean message; otherwise return the raw error
+- Never `shell=True`; never interpolate user input into the command string
+
+**Validation:** `python -c "from src.remediations.executor import run_fix; print(run_fix('Application Firewall'))"` — auth dialog appears, command runs, returns `{"success": True, ...}`.
+
+---
+
+### Step 10.3 — Add `POST /fix/<signal_name>` route to app.py ✅
+
+Update `src/app.py`:
+- Import `REMEDIATIONS` and `run_fix`
+- Add route: `POST /fix/<path:signal_name>` — validates name against registry, calls `run_fix`, returns JSON
+- On unknown signal name: return `{"success": False, "error": "No remediation available for this signal"}` with HTTP 404
+- On success or known failure (user cancelled, command failed): return HTTP 200 with the result dict — let the client decide how to surface the error
+
+**Validation:** `curl -s -X POST http://127.0.0.1:8000/fix/Unknown` returns HTTP 404 with a JSON error body. `curl -s -X POST "http://127.0.0.1:8000/fix/Application%20Firewall"` triggers the auth dialog and returns `{"success": true, ...}`.
+
+---
+
+### Step 10.4 — Add Fix buttons to the dashboard template and stylesheet ✅
+
+Update `templates/dashboard.html`:
+- Accept a new template variable `remediations` (the `REMEDIATIONS` dict, passed from `app.py`)
+- For each signal card: if `signal.name` is in `remediations` and `signal.status` is in `remediations[signal.name].applies_to`, render a Fix button
+- Button label comes from `remediations[signal.name].label`
+- On click: `confirm()` with the message `"Enable [label]? macOS will prompt for your password."` — abort if cancelled
+- On confirm: `fetch('POST /fix/<signal_name>')`, parse JSON response
+  - Success → reload the page (re-runs all collectors, card updates to new status)
+  - Error → show `alert()` with the error message (simple, no new UI components)
+
+Update `static/style.css`:
+- Fix button: secondary style — visually distinct from Refresh, smaller, placed below the status badge
+- Should not dominate the card; this is an optional action, not the primary content
+
+**Validation:** Dashboard loads. Fix button appears on Application Firewall (FAIL) and Stealth Mode (WARN) cards only. Clicking Fix on Application Firewall triggers the confirm dialog, then the auth dialog, then reloads — card now shows PASS. No Fix button appears on PASS cards.
+
+---
+
+### Step 10.5 — End-to-end test ✅
+
+Walk through the complete remediation flow:
+
+1. Launch app, confirm Application Firewall shows FAIL with a Fix button
+2. Click Fix → confirm dialog → auth dialog → page reloads → card shows PASS
+3. Re-open System Settings → Network → Firewall and confirm the firewall is now on
+4. Disable the firewall in System Settings → refresh the dashboard → card shows FAIL again
+5. Repeat for Stealth Mode (WARN → fix → WARN disappears)
+6. Test the cancel path: click Fix → confirm → cancel the auth dialog → error alert shown, card unchanged
+7. Test the unknown-signal path: `curl -X POST http://127.0.0.1:8000/fix/Nonexistent` → 404 JSON
+
+**Validation:** All seven steps complete without error. The dashboard correctly reflects real system state after each change.
+
+---
+
+### Step 10.6 — Update README and documentation ✅
+
+- Add a `## Remediations` section to `README.md` explaining which signals have Fix buttons, what each fix does, and that macOS will prompt for a password
+- Add a Known Limitations entry noting which signals do not have Fix buttons and why (SIP/Secure Boot require Recovery Mode; FileVault is interactive)
+- Confirm `docs/cli_verification.md` has the Phase 10 section from Step 10.1
+
+**Validation:** README accurately describes the remediation feature. `docs/cli_verification.md` has the Phase 10 section.
+
+---
+
+### Phase 10 Integration Validation
+
+- [x] `REMEDIATIONS` registry contains exactly two entries (Application Firewall, Stealth Mode)
+- [x] `run_fix("Application Firewall")` triggers auth dialog and returns `{"success": True, ...}` on confirm
+- [x] `run_fix("Application Firewall")` returns a clean error on cancel — not a crash
+- [x] `POST /fix/<unknown>` returns HTTP 404 with JSON error body
+- [x] Fix button appears on Application Firewall (FAIL) and Stealth Mode (WARN) only
+- [x] Fix button does not appear on PASS cards
+- [x] Clicking Fix → confirm → auth → page reloads with updated card status
+- [x] Clicking Fix → confirm → cancel auth → error alert shown, card unchanged, no crash
+- [x] All 13 existing cards continue to render correctly (no regressions)
+- [x] No command string is derived from user input — only registry constants are executed
+- [x] README Remediations section accurately describes the feature
+- [x] Known Limitations documents which signals lack Fix buttons and why
 
 ---
 

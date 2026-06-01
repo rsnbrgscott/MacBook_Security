@@ -481,3 +481,95 @@ The `~/.ssh/` directory exists and contains outbound keys (GitHub, GitLab, id_ed
 | Failed Logins | `log show` (loginwindow + sshd) | No | Included | No failures in 24h → PASS |
 | Sudo Activity | `log show` / BSM audit | BSM requires root | **Omitted** — see Known Limitations | N/A |
 | SSH Authorized Keys | `~/.ssh/authorized_keys` | No | Included | File absent → PASS |
+
+---
+
+# CLI Verification — Remediations
+
+Recorded during Phase 10, Step 10.1 on macOS (Apple Silicon, Mac15,9, Darwin 25.5.0 / macOS Sequoia).
+
+---
+
+## Privilege model — osascript auth dialog
+
+**Pattern:** `osascript -e 'do shell script "<cmd>" with administrator privileges'`
+
+**Canary test:**
+```
+$ osascript -e 'do shell script "whoami" with administrator privileges'
+root
+EXIT:0
+```
+Auth dialog appeared. On confirm (Touch ID or password): exits 0, stdout = `root`.
+
+**Cancel path:**
+```
+$ osascript -e 'error "User canceled." number -128'
+6:22: execution error: User canceled. (-128)
+EXIT:1
+```
+When the user clicks Cancel in the auth dialog, osascript exits 1 and stderr contains `"User canceled."` (AppleScript error -128). The executor must detect this string and surface a clean message rather than a raw error.
+
+> **Note:** Touch ID auto-authenticated the canary and firewall tests without showing a visible dialog. The cancel path was confirmed via the `error` command which reproduces the exact osascript cancel error format (exit 1, `"User canceled."` in stderr).
+
+---
+
+## Application Firewall — socketfilterfw --setglobalstate on
+
+**Command (via osascript):**
+```
+osascript -e 'do shell script "/usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on" with administrator privileges'
+```
+**Exit code:** 0
+**stdout:** *(empty — socketfilterfw writes no output on success)*
+**stderr:** *(empty)*
+
+**Post-command verification:**
+```
+$ /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
+Firewall is enabled. (State = 1)
+```
+
+**Restored after test:**
+```
+osascript -e 'do shell script "/usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate off" with administrator privileges'
+# → exit 0; getglobalstate confirms: Firewall is disabled. (State = 0)
+```
+
+---
+
+## Stealth Mode — socketfilterfw --setstealthmode on
+
+**Command (via osascript):**
+```
+osascript -e 'do shell script "/usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on" with administrator privileges'
+```
+**Exit code:** 0
+**stdout:** *(empty)*
+**stderr:** *(empty)*
+
+**Post-command verification:**
+```
+$ /usr/libexec/ApplicationFirewall/socketfilterfw --getstealthmode
+Firewall stealth mode is on
+```
+
+**Restored after test:**
+```
+osascript -e 'do shell script "/usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode off" with administrator privileges'
+# → exit 0; getstealthmode confirms: Firewall stealth mode is off
+```
+
+---
+
+## Summary — Remediations
+
+| Signal | Command | Privilege method | Exit on success | Exit on cancel |
+|--------|---------|-----------------|----------------|----------------|
+| Application Firewall | `socketfilterfw --setglobalstate on` | osascript auth dialog | 0, empty stdout | 1, `"User canceled."` in stderr |
+| Stealth Mode | `socketfilterfw --setstealthmode on` | osascript auth dialog | 0, empty stdout | 1, `"User canceled."` in stderr |
+
+**Key findings:**
+- Both commands exit 0 with empty stdout on success — success must be inferred from exit code, not output content
+- Cancel produces exit 1 with `"User canceled."` in stderr (AppleScript error -128) — must be caught and surfaced cleanly
+- State was restored to original (firewall disabled, stealth off) after verification to give Step 10.5 a clean FAIL baseline to test from

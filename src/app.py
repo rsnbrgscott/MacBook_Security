@@ -2,8 +2,10 @@ import os
 import sys
 from pathlib import Path
 
-from flask import Flask, render_template
+from flask import Flask, jsonify, render_template
 from collectors import run_all_collectors
+from remediations import REMEDIATIONS
+from remediations.executor import run_fix
 
 ROOT = Path(__file__).parent.parent
 
@@ -30,8 +32,19 @@ def _get_refresh_interval() -> int:
 @app.route("/")
 def dashboard():
     signals = run_all_collectors()
-    return render_template("dashboard.html", signals=signals,
-                           refresh_interval=app.config["REFRESH_INTERVAL"])
+    return render_template(
+        "dashboard.html",
+        signals=signals,
+        refresh_interval=app.config["REFRESH_INTERVAL"],
+        remediations=REMEDIATIONS,
+    )
+
+
+@app.route("/fix/<path:signal_name>", methods=["POST"])
+def fix(signal_name):
+    if signal_name not in REMEDIATIONS:
+        return jsonify({"success": False, "error": f"No remediation available for '{signal_name}'"}), 404
+    return jsonify(run_fix(signal_name))
 
 
 if __name__ == "__main__":

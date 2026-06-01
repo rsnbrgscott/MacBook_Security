@@ -41,7 +41,7 @@ def check_stealth_mode() -> dict:
     raw, error = _run([_SOCKETFILTERFW, "--getstealthmode"])
     if error:
         return {"name": "Stealth Mode", "description": "Prevents the machine from responding to unsolicited network probes such as ICMP ping.", "status": "UNKNOWN", "raw": raw, "error": error}
-    if "enabled" in raw:
+    if "enabled" in raw or "is on" in raw:
         status = "PASS"
     elif "off" in raw or "disabled" in raw:
         status = "WARN"
