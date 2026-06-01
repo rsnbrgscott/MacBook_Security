@@ -357,13 +357,110 @@ Add `REFRESH_INTERVAL` to the environment variables table with its default and v
 
 ## Phase 7 — Network Signals
 
-> Detailed step planning will be done before this phase begins. Spec reference: `SPEC.md § Future Phases — Phase 3`.
+Spec reference: `SPEC.md § Future Phases — Phase 3`.
 
-**Goal:** Add a second signal category: network activity.
+**Goal:** Add a second signal category covering the macOS Application Firewall and listening service exposure. Each network signal follows the same collector shape as system integrity: `name`, `description`, `status`, `raw`, `error`.
 
-**Planned signals:** Listening ports (`lsof`), firewall state (`socketfilterfw`), active outbound connections.
+**Signals in scope:**
 
-**Key constraint:** `socketfilterfw` requires elevated privileges — the privilege model must be resolved before implementation.
+| Signal | Command | Status logic |
+|--------|---------|-------------|
+| Application Firewall | `socketfilterfw --getglobalstate` | PASS = enabled, FAIL = disabled |
+| Stealth Mode | `socketfilterfw --getstealthmode` | PASS = enabled, WARN = disabled |
+| Listening Services | `lsof -iTCP -sTCP:LISTEN -P -n` | PASS = all loopback-only, WARN = any external-facing listener |
+
+> Active outbound connections are deferred — they produce high-churn output with no reliable PASS/FAIL boundary and are better suited to a later history/alerting phase.
+
+> **Privilege model:** `socketfilterfw` read-only flags (`--getglobalstate`, `--getstealthmode`) do not require `sudo` on modern macOS. If either exits non-zero without elevated privileges, fall back to `defaults read /Library/Preferences/com.apple.alf` (key `globalstate`: 0 = off, 1 = on, 2 = block all). This fallback reads saved policy, not real-time kernel state — document the distinction in Known Limitations if used.
+
+---
+
+### Step 7.1 — Resolve the privilege model and verify CLI commands ✅
+
+Run each command in Terminal **without** `sudo` and record the exact output:
+
+| Command | Expected output contains | Run without sudo? |
+|---------|--------------------------|------------------|
+| `/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate` | `enabled` or `disabled` | TBD — record result |
+| `/usr/libexec/ApplicationFirewall/socketfilterfw --getstealthmode` | `enabled` or `disabled` | TBD — record result |
+| `lsof -iTCP -sTCP:LISTEN -P -n` | Lines with `LISTEN` | Yes (own processes only without root) |
+
+If either `socketfilterfw` flag fails without root, switch to the `defaults read` fallback and note it in `docs/cli_verification.md` and README Known Limitations.
+
+Record exact output in `docs/cli_verification.md` under a new `## Phase 7 — Network` heading. This output drives the parsers written in Step 7.2.
+
+**Validation:** All commands produce parseable output without `sudo`. Exact output is recorded in `docs/cli_verification.md`.
+
+---
+
+### Step 7.2 — Write the network collector module ✅
+
+Create `src/collectors/network.py` with three functions:
+
+```
+check_firewall()        → { name, description, status, raw, error }
+check_stealth_mode()    → { name, description, status, raw, error }
+check_listening_ports() → { name, description, status, raw, error }
+```
+
+**Status logic:**
+
+| Collector | PASS | WARN | FAIL | UNKNOWN |
+|-----------|------|------|------|---------|
+| `check_firewall` | Firewall enabled | — | Firewall disabled | Command failed or unrecognized output |
+| `check_stealth_mode` | Stealth mode enabled | Stealth mode disabled | — | Command failed or unrecognized output |
+| `check_listening_ports` | All listeners bound to loopback (`127.0.0.1` / `::1`) | One or more listeners bound to `0.0.0.0` / `*` / all interfaces | — | `lsof` failed or returned no parseable output |
+
+Rules (same as system integrity collectors):
+- Use `subprocess.run()` with a timeout; never `shell=True`
+- Parse by string matching, not field position
+- Any exception or unrecognized output → `UNKNOWN` with error captured; never raise
+
+**Validation:** Add a `__main__` block and run `.venv/bin/python src/collectors/network.py`. All three functions return dicts with the correct keys; none raise an exception.
+
+---
+
+### Step 7.3 — Register network collectors ✅
+
+Update `src/collectors/__init__.py` to import and append the three network collectors to `_COLLECTORS`. No changes to `app.py` or the template — the modular registry picks them up automatically.
+
+**Validation:** `.venv/bin/python -c "from src.collectors import run_all_collectors; print(len(run_all_collectors()))"` prints `7`. All seven dicts contain the required keys.
+
+---
+
+### Step 7.4 — End-to-end dashboard check ✅
+
+Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000` in a browser.
+
+- Confirm all seven cards render (4 system integrity + 3 network)
+- Confirm badge colors match each signal's actual status
+- Temporarily rename one network command in the collector to force a failure; confirm that card shows UNKNOWN and the other six are unaffected; restore the command
+
+**Validation:** All seven cards render with correct data and the forced failure degrades gracefully.
+
+---
+
+### Step 7.5 — Update README and documentation ✅
+
+- Add the three new signals to the "Signals monitored" table in `README.md`
+- Add a Known Limitations entry if the `defaults read` fallback was used (noting it reflects saved policy, not real-time kernel state)
+- Confirm `docs/cli_verification.md` has the Phase 7 section from Step 7.1
+
+**Validation:** README signals table has seven rows. `docs/cli_verification.md` has the Phase 7 section.
+
+---
+
+### Phase 7 Integration Validation
+
+- [x] All three network collector functions return the correct dict shape
+- [x] `check_firewall` status matches the actual firewall state in System Settings → Network → Firewall
+- [x] `check_stealth_mode` status matches the actual stealth mode setting
+- [x] `check_listening_ports` correctly returns WARN if any listener is bound to a non-loopback interface
+- [x] All seven cards render in the dashboard with no layout regressions from Phase 6
+- [x] Badge colors are correct for all seven signals
+- [x] Forced network collector failure shows UNKNOWN; other six cards unaffected
+- [x] No collector calls `sudo` — all commands run without elevated privileges
+- [x] README signals table reflects all seven monitored signals
 
 ---
 

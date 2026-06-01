@@ -32,12 +32,22 @@ PORT=9000 .venv/bin/python src/app.py
 
 ## Signals monitored
 
+### System integrity
+
 | Signal | What it checks | Why it matters |
 |--------|---------------|----------------|
 | **System Integrity Protection (SIP)** | `csrutil status` | Prevents modification of protected system files and directories, even by root. If disabled, malware can alter core OS binaries. |
 | **Gatekeeper** | `spctl --status` | Enforces that apps are signed by an Apple-notarized developer before running. If disabled, unsigned or tampered apps run without warning. |
 | **FileVault** | `fdesetup status` | Full-disk encryption — protects all data at rest. If off, anyone with physical access to the machine can read all data. |
 | **Secure Boot** | `system_profiler SPiBridgeDataType` | Ensures only a trusted, Apple-signed OS loads at startup. If weakened, a compromised bootloader can persist silently across reinstalls. |
+
+### Network
+
+| Signal | What it checks | Why it matters |
+|--------|---------------|----------------|
+| **Application Firewall** | `socketfilterfw --getglobalstate` | Blocks unsolicited inbound connections to applications. If disabled, any app can accept connections from the network without restriction. |
+| **Stealth Mode** | `socketfilterfw --getstealthmode` | Prevents the machine from responding to network probe requests such as ICMP ping. If off, the machine is more easily discovered during a network scan. |
+| **Listening Services** | `lsof -iTCP -sTCP:LISTEN -P -n` | Shows TCP services accepting inbound connections. Services bound to all interfaces (`*`) are reachable from the local network, not just from this machine. |
 
 Status values: **PASS** (green) · **FAIL** (red) · **WARN** (amber) · **UNKNOWN** (yellow, check failed or output unrecognized)
 
@@ -46,9 +56,9 @@ Status values: **PASS** (green) · **FAIL** (red) · **WARN** (amber) · **UNKNO
 - **Apple Silicon only.** The Secure Boot check uses `system_profiler SPiBridgeDataType`, which is not available on Intel Macs.
 - **Read-only.** The dashboard displays status only — it cannot enable FileVault, toggle Gatekeeper, or apply any fixes.
 - **No persistence.** Data is collected fresh on every page load and is never written to disk.
-- **On-demand refresh only.** There is no background polling or automatic refresh — click Refresh to re-run all checks.
 - **Local access only.** The server binds to `127.0.0.1` and is not reachable from other devices on the network.
-- **System integrity signals only (MVP).** Network, persistence, authentication, and other signal categories are planned for future phases. See `docs/SPEC.md`.
+- **Listening Services shows current-user processes only.** `lsof` runs without elevated privileges, so system-owned processes (running as root) do not appear in the Listening Services output.
+- **Persistence, authentication, and other signal categories are planned.** See `docs/SPEC.md` for the full roadmap.
 
 ## Project structure
 
@@ -61,7 +71,8 @@ MacBook_Security/
 ├── src/
 │   ├── collectors/
 │   │   ├── __init__.py          # Collector registry (run_all_collectors)
-│   │   └── system_integrity.py  # SIP, Gatekeeper, FileVault, Secure Boot checks
+│   │   ├── system_integrity.py  # SIP, Gatekeeper, FileVault, Secure Boot checks
+│   │   └── network.py           # Application Firewall, Stealth Mode, Listening Services
 │   └── app.py                   # Flask entry point
 ├── templates/
 │   └── dashboard.html           # Jinja2 dashboard template
