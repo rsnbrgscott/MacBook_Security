@@ -282,7 +282,7 @@ Update `README.md` to include:
 
 ---
 
-### Step 5.4 — End-to-end MVP test
+### Step 5.4 — End-to-end MVP test ✅
 
 Run through the complete user flow:
 1. Clone/open the repo in a fresh terminal
@@ -299,12 +299,12 @@ Run through the complete user flow:
 
 ### Phase 5 Integration Validation
 
-- [ ] All four cards render with live data on a clean launch
-- [ ] Forced collector failure produces UNKNOWN card, not a crash
-- [ ] `PORT` env var correctly overrides the default port
-- [ ] Flask is not running in debug mode by default
-- [ ] README instructions work from a clean terminal session
-- [ ] No hardcoded paths, credentials, or machine-specific values in any file
+- [x] All four cards render with live data on a clean launch
+- [x] Forced collector failure produces UNKNOWN card, not a crash
+- [x] `PORT` env var correctly overrides the default port
+- [x] Flask is not running in debug mode by default
+- [x] README instructions work from a clean terminal session
+- [x] No hardcoded paths, credentials, or machine-specific values in any file
 
 ---
 
