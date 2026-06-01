@@ -356,3 +356,128 @@ Acrobat Collaboration Synchronizer, GeminiAppLauncher, Podman Desktop, Amphetami
 | Global Launch Agents | `/Library/LaunchAgents/` | No | — | 15 non-Apple entries → WARN |
 | Launch Daemons | `/Library/LaunchDaemons/` | No | — | 22 non-Apple entries → WARN |
 | Login Items | `osascript` System Events | No | osascript (no TCC prompt) | 4 items → WARN |
+
+---
+
+# CLI Verification — Authentication Signals
+
+Recorded during Phase 9, Step 9.1 on macOS (Apple Silicon, Mac15,9, Darwin 25.5.0 / macOS Sequoia).
+These are the exact outputs used to write the parsers in Step 9.2 and to make the signal inclusion decision.
+
+---
+
+## Failed Logins — loginwindow predicate
+
+**Command:** `log show --predicate 'process == "loginwindow" AND eventMessage CONTAINS "FAILED"' --last 24h --style compact`
+**Privilege required:** None — confirmed working without `sudo`
+
+**Observed output:**
+```
+Timestamp               Ty Process[PID:TID]
+```
+*(header only — no failures in past 24h)*
+
+**FDA suppression check:** The header line is present. This confirms `log show` is not being silently suppressed — it can query loginwindow logs. If the output were completely empty (no header), that would indicate FDA suppression.
+
+**Parse strategy:**
+- Canary: presence of the header line confirms log access
+- PASS → header present, no data rows
+- WARN → one or more data rows (each is a failure event)
+- UNKNOWN → exit non-zero, or completely empty output (no header)
+
+> **Case sensitivity:** The `CONTAINS` operator in `log show` predicates is case-sensitive. The predicate uses `"FAILED"` (uppercase) matching the known loginwindow message format. Use `CONTAINS[c]` if case variance is suspected across macOS versions.
+
+---
+
+## Failed Logins — sshd predicate
+
+**Command:** `log show --predicate 'process == "sshd" AND (eventMessage CONTAINS "Failed" OR eventMessage CONTAINS "Invalid")' --last 24h --style compact`
+**Privilege required:** None
+
+**Observed output:**
+```
+Timestamp               Ty Process[PID:TID]
+```
+*(header only — no sshd failures in past 24h; SSH is not actively in use on this machine)*
+
+**Parse strategy:** Same as loginwindow — header confirms access, data rows indicate failures.
+
+---
+
+## Failed Logins — combined predicate (final choice)
+
+**Command:**
+```
+log show --predicate '(process == "loginwindow" AND eventMessage CONTAINS "FAILED") OR (process == "sshd" AND (eventMessage CONTAINS "Failed" OR eventMessage CONTAINS "Invalid"))' --last 24h --style compact
+```
+
+> ⚠️ Case-insensitive `CONTAINS[c] "failed"` on loginwindow matches unrelated messages such as `"Failed to set up CFPasteboardRef"` (a clipboard error), producing false WARN results. The loginwindow authentication failure message format uses all-caps `"FAILED"`, so the case-sensitive predicate is correct and specific.
+
+**Observed output:**
+```
+Timestamp               Ty Process[PID:TID]
+```
+*(header only — no failures in past 24h)*
+
+**Parse strategy:** Same. Case-insensitive `[c]` modifier used for loginwindow to handle any message-format variation across macOS versions.
+
+**Method selection:** Combined into a single `log show` call (one subprocess) rather than two separate queries. Covers both GUI password failures (loginwindow) and SSH failures (sshd).
+
+---
+
+## Sudo Activity — investigation and decision
+
+**Candidate command:** `log show --predicate 'process == "sudo" AND eventMessage CONTAINS "COMMAND="' --last 24h --style compact`
+
+**Observed output (24h):** Header only — zero `COMMAND=` entries found.
+
+**Investigation:**
+
+The unfiltered sudo query (`process == "sudo"`) returned 1.6 MB of output over 24h — 17,045 lines from ~563 unique sudo PIDs. Every single entry was an internal library call:
+- `(libsystem_info.dylib) Retrieve User by ID`
+- `(libsystem_info.dylib) Too many groups requested`
+- `Df sudo[PID] Reading config`
+
+The actual audit message that `sudo` writes when a user runs a command — format:
+```
+scottrosenberg : TTY=ttys001 ; PWD=/path ; USER=root ; COMMAND=/usr/bin/something
+```
+— **does not appear in the unified log**, even with `--info` and `--debug` flags, even over a 7-day window.
+
+**Root cause:** On macOS, `sudo`'s audit record is written to the BSM audit trail (`/var/audit/`), not to the unified logging system. `/var/audit/` is `Permission denied` without root.
+
+**Why PID counting fails as a fallback:** The 563 unique sudo PIDs per day are all background system process invocations (from McAfee, Docker, system daemons, etc.). There is no way to distinguish a user's `sudo make install` from a background daemon's internal sudo call using the unified log alone.
+
+**Decision: Omit sudo activity from Phase 9.** Document as a Known Limitation. Defer to a future phase if a root-free data source is identified.
+
+---
+
+## SSH Authorized Keys — ~/.ssh/authorized_keys
+
+**Source:** `~/.ssh/authorized_keys`
+**Privilege required:** None (user-owned file)
+
+**Observed output:**
+```
+ls: /Users/scottrosenberg/.ssh/authorized_keys: No such file or directory
+```
+
+The `~/.ssh/` directory exists and contains outbound keys (GitHub, GitLab, id_ed25519) but **no `authorized_keys` file**. An absent file means no remote key-based logins are authorized.
+
+**Parse strategy:**
+- Use `pathlib.Path.exists()` — if absent, treat same as empty
+- PASS → file absent or contains only blank lines and `#` comments
+- WARN → file has one or more valid key lines (non-blank, non-comment)
+- UNKNOWN → `OSError` reading the file
+
+**Status on this machine:** File absent → PASS
+
+---
+
+## Summary — Authentication
+
+| Signal | Source | Root required? | Decision | Status on this machine |
+|--------|--------|---------------|----------|----------------------|
+| Failed Logins | `log show` (loginwindow + sshd) | No | Included | No failures in 24h → PASS |
+| Sudo Activity | `log show` / BSM audit | BSM requires root | **Omitted** — see Known Limitations | N/A |
+| SSH Authorized Keys | `~/.ssh/authorized_keys` | No | Included | File absent → PASS |

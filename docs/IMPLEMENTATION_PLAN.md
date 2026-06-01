@@ -591,13 +591,130 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000` in a brows
 
 ## Phase 9 — Authentication Signals
 
-> Detailed step planning will be done before this phase begins. Spec reference: `SPEC.md § Future Phases — Phase 5`.
+Spec reference: `SPEC.md § Future Phases — Phase 5`.
 
-**Goal:** Add authentication event monitoring.
+**Goal:** Add a third signal category covering recent authentication events and SSH key exposure. Each signal follows the same collector shape as prior phases: `name`, `description`, `status`, `raw`, `error`.
 
-**Planned signals:** Failed login attempts, sudo activity, authorized SSH keys.
+**Signals in scope:**
 
-**Key constraint:** `log show` queries may require Full Disk Access — the permission model must be resolved before implementation.
+| Signal | Source | PASS | WARN | UNKNOWN |
+|--------|--------|------|------|---------|
+| Failed Logins | `log show` (loginwindow + sshd) | No failures in past 24h | One or more failures | Command failed, timed out, or completely empty output |
+| SSH Authorized Keys | `~/.ssh/authorized_keys` | File absent or empty | File has one or more key entries | `OSError` reading the file |
+
+> **Sudo activity omitted (Step 9.1 finding):** `sudo`'s audit record (the `COMMAND=` message) is written to the BSM audit trail (`/var/audit/`), which requires root to read. It does not appear in the unified log at any log level. The only sudo data in the unified log without root is ~563 undifferentiated background system process invocations per day (from McAfee, Docker, and other daemons), which cannot be distinguished from user invocations. Deferred to a future phase if a root-free data source is identified. Documented in Known Limitations.
+
+> **Why WARN and not FAIL for log-based signals:** A failed login may be the user mistyping a password. WARN means "activity was detected — review if unexpected." FAIL is reserved for clear misconfigurations (e.g., FileVault off).
+
+> **FDA suppression mitigation:** `log show` returns a header line even when there are no matching events. If the output is completely empty (no header), that indicates FDA suppression or a broken log query — return UNKNOWN. The header-present / data-absent state is the expected PASS case.
+
+> **SSH Authorized Keys:** `~/.ssh/authorized_keys` is a plain file read — no subprocess, no log access, no FDA concern. File absent on this machine → PASS.
+
+> **Time window:** Fixed at 24h for the `log show` signal.
+
+---
+
+### Step 9.1 — Verify CLI commands and resolve the privilege model ✅
+
+Without `sudo`, run each candidate command and record the exact output:
+
+| Command | What to look for |
+|---------|-----------------|
+| `log show --predicate 'process == "loginwindow" AND eventMessage CONTAINS "FAILED"' --last 24h --style compact` | Any output at all — even an empty-but-headed table confirms access |
+| `log show --predicate 'process == "sshd" AND (eventMessage CONTAINS "Failed" OR eventMessage CONTAINS "Invalid")' --last 24h --style compact` | Same |
+| `log show --predicate 'process == "sudo"' --last 1h --style compact` | Canary: confirms log access is working even if no failures occurred |
+| `ls -la ~/.ssh/authorized_keys 2>&1` | Exists / absent / permissions |
+
+**Decision rules:**
+- If `log show` exits non-zero → document the error; plan to return UNKNOWN for that signal.
+- If `log show` exits zero but produces *no output at all* (not even a header line) → FDA-suppressed; return UNKNOWN.
+- If `log show` exits zero with a header line but no data rows → command works, no matching events in window; PASS logic is safe.
+
+**Step 9.1 outcome:** All candidate commands confirmed working without `sudo` or a permission dialog. Sudo activity omitted — see signal table above and `docs/cli_verification.md § Phase 9`. All output recorded.
+
+Record all output in `docs/cli_verification.md` under a new `## Phase 9 — Authentication` heading.
+
+**Validation:** ✅ All commands run without a permission dialog. Output recorded. Sudo activity omission documented.
+
+---
+
+### Step 9.2 — Write the authentication collector module ✅
+
+Create `src/collectors/auth.py` with two functions:
+
+```
+check_failed_logins()  → { name, description, status, raw, error }
+check_ssh_keys()       → { name, description, status, raw, error }
+```
+
+**Status logic:**
+
+| Collector | PASS | WARN | UNKNOWN |
+|-----------|------|------|---------|
+| `check_failed_logins` | `log show` exits 0, header line present, no failure events in 24h | One or more failure events found | Exit non-zero, timeout, or completely empty output (no header line) |
+| `check_ssh_keys` | `~/.ssh/authorized_keys` absent or empty | File has one or more non-comment, non-empty lines | `OSError` reading the file |
+
+**`raw` field content:**
+- PASS (`check_failed_logins`): `"No failed login events in past 24h."`
+- WARN (`check_failed_logins`): the matching log lines (first 20 lines if many)
+- PASS (`check_ssh_keys`): `"No authorized keys found."`
+- WARN (`check_ssh_keys`): the file contents (each key line)
+- UNKNOWN: the error or empty-output message
+
+**Implementation rules:**
+- `check_failed_logins`: use `subprocess.run()` via `_run()` with a 30s timeout; never `shell=True`
+- Predicate: `(process == "loginwindow" AND eventMessage CONTAINS "FAILED") OR (process == "sshd" AND (eventMessage CONTAINS "Failed" OR eventMessage CONTAINS "Invalid"))` — loginwindow uses case-sensitive uppercase "FAILED" to avoid matching unrelated messages (e.g. CFPasteboard errors that contain "Failed")
+- Parse by checking if any non-header, non-empty lines are present — do not rely on exit code alone
+- If output is completely empty (no header line at all), return UNKNOWN with `error="log show returned no output — Full Disk Access may be required"`
+- `check_ssh_keys`: use `pathlib.Path`; wrap in `try/except OSError`; skip lines that are blank or start with `#`
+- Card descriptions must communicate that WARN is informational
+
+**Validation:** Add a `__main__` block and run `.venv/bin/python src/collectors/auth.py`. Both functions return dicts with the correct keys; neither raises an exception.
+
+---
+
+### Step 9.3 — Register authentication collectors ✅
+
+Update `src/collectors/__init__.py` to import and append the two auth collectors to `_COLLECTORS`. No changes to `app.py` or the template.
+
+**Validation:** `.venv/bin/python -c "from src.collectors import run_all_collectors; print(len(run_all_collectors()))"` prints `13`. All dicts contain the required keys.
+
+---
+
+### Step 9.4 — End-to-end dashboard check ✅
+
+Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000` in a browser.
+
+- Confirm all 13 cards render (11 existing + 2 auth)
+- Confirm badge colors match actual state on this machine
+- Force `check_ssh_keys` to fail by temporarily pointing it at a non-readable path (triggers `OSError`); confirm it shows UNKNOWN and other 12 cards are unaffected; restore
+
+**Validation:** All 13 cards render with correct data and the forced failure degrades gracefully.
+
+---
+
+### Step 9.5 — Update README and documentation ✅
+
+- Add the two new signals to `README.md` under a new `### Authentication` heading in the Signals monitored section
+- Add a Known Limitations entry for sudo activity explaining why it was omitted (BSM audit requires root; unified log only shows background system calls)
+- Confirm `docs/cli_verification.md` has the Phase 9 section from Step 9.1
+
+**Validation:** README signals section has an Authentication subsection. Known Limitations mentions sudo activity. `docs/cli_verification.md` has the Phase 9 section.
+
+---
+
+### Phase 9 Integration Validation
+
+- [x] Both auth collector functions return the correct dict shape
+- [x] `check_failed_logins` returns PASS (no failures in 24h on this machine)
+- [x] Completely empty `log show` output (no header) → `check_failed_logins` returns UNKNOWN, not a misleading PASS
+- [x] `check_ssh_keys` returns PASS (`~/.ssh/authorized_keys` absent on this machine)
+- [x] All 13 cards render in the dashboard with no layout regressions
+- [x] Badge colors are correct for all signals
+- [x] Forced `check_ssh_keys` failure shows UNKNOWN; other 12 cards unaffected
+- [x] No collector calls `sudo`
+- [x] README authentication section accurately describes each signal
+- [x] Known Limitations documents why sudo activity was omitted
 
 ---
 

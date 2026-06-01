@@ -15,6 +15,10 @@ from .persistence import (
     check_launch_daemons,
     check_login_items,
 )
+from .auth import (
+    check_failed_logins,
+    check_ssh_keys,
+)
 
 # To add a new signal category: import its check functions and append them here.
 # app.py never needs to change — it only calls run_all_collectors().
@@ -30,6 +34,8 @@ _COLLECTORS = [
     check_global_launch_agents,
     check_launch_daemons,
     check_login_items,
+    check_failed_logins,
+    check_ssh_keys,
 ]
 
 
