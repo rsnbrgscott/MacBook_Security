@@ -75,4 +75,11 @@ MacBook_Security/
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `8000` | Port the server listens on |
+| `REFRESH_INTERVAL` | `0` | Auto-refresh interval in seconds. `0` disables auto-refresh (on-demand only). Any positive integer enables the countdown and automatic page reload. |
 | `FLASK_DEBUG` | — | Must not be set — the app will refuse to start if it is |
+
+To enable auto-refresh every 30 seconds:
+
+```zsh
+REFRESH_INTERVAL=30 .venv/bin/python src/app.py
+```

@@ -14,10 +14,24 @@ app = Flask(
 )
 
 
+def _get_refresh_interval() -> int:
+    raw = os.environ.get("REFRESH_INTERVAL", "0").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        print(f"ERROR: REFRESH_INTERVAL must be a non-negative integer, got {raw!r}.", file=sys.stderr)
+        sys.exit(1)
+    if value < 0:
+        print(f"ERROR: REFRESH_INTERVAL must be >= 0, got {value}.", file=sys.stderr)
+        sys.exit(1)
+    return value
+
+
 @app.route("/")
 def dashboard():
     signals = run_all_collectors()
-    return render_template("dashboard.html", signals=signals)
+    return render_template("dashboard.html", signals=signals,
+                           refresh_interval=app.config["REFRESH_INTERVAL"])
 
 
 if __name__ == "__main__":
@@ -25,6 +39,10 @@ if __name__ == "__main__":
         print("ERROR: FLASK_DEBUG is set. This dashboard does not run in debug mode.", file=sys.stderr)
         sys.exit(1)
 
+    app.config["REFRESH_INTERVAL"] = _get_refresh_interval()
     port = int(os.environ.get("PORT", 8000))
-    print(f"Dashboard running at http://127.0.0.1:{port} — local access only")
+
+    interval = app.config["REFRESH_INTERVAL"]
+    refresh_note = f", auto-refresh every {interval}s" if interval else ", on-demand refresh"
+    print(f"Dashboard running at http://127.0.0.1:{port} — local access only{refresh_note}")
     app.run(host="127.0.0.1", port=port, debug=False)

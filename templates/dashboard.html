@@ -9,7 +9,14 @@
 <body>
   <header class="page-header">
     <h1 class="page-title">MacBook Security Dashboard</h1>
-    <a class="refresh-btn" href="/">Refresh</a>
+    <div class="header-controls">
+      {% if refresh_interval > 0 %}
+      <span class="refresh-indicator">
+        Auto-refresh in <span id="countdown">{{ refresh_interval }}</span>s
+      </span>
+      {% endif %}
+      <a class="refresh-btn" href="/">Refresh</a>
+    </div>
   </header>
 
   <main class="card-grid">
@@ -27,5 +34,21 @@
     </div>
     {% endfor %}
   </main>
+
+  {% if refresh_interval > 0 %}
+  <script>
+    (function () {
+      var remaining = {{ refresh_interval }};
+      var el = document.getElementById('countdown');
+      function tick() {
+        if (remaining <= 0) { location.reload(); return; }
+        el.textContent = remaining;
+        remaining -= 1;
+        setTimeout(tick, 1000);
+      }
+      setTimeout(tick, 1000);
+    })();
+  </script>
+  {% endif %}
 </body>
 </html>

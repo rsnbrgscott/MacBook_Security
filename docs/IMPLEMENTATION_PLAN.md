@@ -310,15 +310,48 @@ Run through the complete user flow:
 
 ## Phase 6 — Polling / Auto-Refresh
 
-> Detailed step planning will be done before this phase begins. Spec reference: `SPEC.md § Future Phases — Phase 2`.
+**Goal:** Add configurable auto-refresh so the dashboard updates on a fixed interval without requiring a manual page reload. On-demand mode (the MVP default) must continue to work unchanged.
 
-**Goal:** Add configurable auto-refresh so the dashboard updates on a fixed interval without requiring a manual page reload.
+> **Refresh strategy:** Auto-refresh is implemented in the browser via a JavaScript countdown that calls `location.reload()`. The server needs no new routes — it only passes the configured interval to the template. This keeps Flask stateless and makes the refresh model transparent and easy to reason about.
 
-**Planned scope:**
-- Abstract the refresh trigger behind a configurable strategy (on-demand vs. polling)
-- Add a visible refresh interval indicator to the UI
-- Make the interval configurable (env var or UI control)
-- On-demand mode remains the default and must continue to work unchanged
+---
+
+### Step 6.1 — Add REFRESH_INTERVAL support to app.py ✅
+
+- Read `REFRESH_INTERVAL` env var; default `0` (off)
+- Validate it is a non-negative integer; exit with a clear error if not
+- Pass `refresh_interval` to `render_template` so the template can act on it
+
+**Validation:** `REFRESH_INTERVAL=30 .venv/bin/python src/app.py` starts without error. `curl http://127.0.0.1:8000/` returns a page containing `30` where the interval is rendered. Default launch passes `0`.
+
+---
+
+### Step 6.2 — Add countdown indicator and auto-reload to the template ✅
+
+Update `templates/dashboard.html` and `static/style.css`:
+- If `refresh_interval > 0`: show a visible indicator in the header (e.g. "Auto-refresh: 30s") with a live countdown
+- A small vanilla JS block decrements the countdown each second and calls `location.reload()` when it reaches zero
+- If `refresh_interval == 0`: indicator is hidden; behavior is identical to the MVP
+
+**Validation:** With `REFRESH_INTERVAL=10`, open the dashboard in a browser. The countdown ticks from 10 to 0 and the page reloads. Without `REFRESH_INTERVAL`, no indicator appears and nothing changes.
+
+---
+
+### Step 6.3 — Update README ✅
+
+Add `REFRESH_INTERVAL` to the environment variables table with its default and valid values.
+
+**Validation:** README accurately describes the feature; a reader can enable auto-refresh using only the README.
+
+---
+
+### Phase 6 Integration Validation
+
+- [x] Default launch (no `REFRESH_INTERVAL`) behaves identically to the MVP — no indicator, no auto-reload
+- [x] `REFRESH_INTERVAL=10` shows countdown and reloads the page when it reaches zero
+- [x] `REFRESH_INTERVAL=0` explicitly disables auto-refresh (same as default)
+- [x] Invalid value (e.g. `REFRESH_INTERVAL=abc`) exits with a clear error message
+- [x] Manual Refresh button still works in both modes
 
 ---
 
