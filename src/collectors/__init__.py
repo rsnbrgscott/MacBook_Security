@@ -19,6 +19,7 @@ from .auth import (
     check_failed_logins,
     check_ssh_keys,
 )
+from .external import check_macos_version
 
 # To add a new signal category: import its check functions and append them here.
 # app.py never needs to change — it only calls run_all_collectors().
@@ -38,6 +39,11 @@ _COLLECTORS = [
     check_ssh_keys,
 ]
 
+_EXTERNAL_COLLECTORS = [
+    check_macos_version,
+]
 
-def run_all_collectors() -> list[dict]:
-    return [fn() for fn in _COLLECTORS]
+
+def run_all_collectors(external: bool = False) -> list[dict]:
+    collectors = _COLLECTORS + (_EXTERNAL_COLLECTORS if external else [])
+    return [fn() for fn in collectors]

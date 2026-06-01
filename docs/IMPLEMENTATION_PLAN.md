@@ -899,7 +899,7 @@ Walk through the complete remediation flow:
 
 ---
 
-### Step 11.1 — Verify the version API and privacy model
+### Step 11.1 — Verify the version API and privacy model ✅
 
 Test both candidate APIs and choose one. For each:
 
@@ -929,7 +929,7 @@ Document the chosen API, the full response shape, and the request headers in `do
 
 ---
 
-### Step 11.2 — Design the version comparison logic
+### Step 11.2 — Design the version comparison logic ✅
 
 Determine the status mapping:
 
@@ -951,7 +951,7 @@ Document the chosen status mapping in `docs/cli_verification.md`.
 
 ---
 
-### Step 11.3 — Create `src/collectors/external.py`
+### Step 11.3 — Create `src/collectors/external.py` ✅
 
 Implement `check_macos_version() -> dict`:
 
@@ -987,7 +987,7 @@ Implementation rules:
 
 ---
 
-### Step 11.4 — Register external collectors conditionally
+### Step 11.4 — Register external collectors conditionally ✅
 
 Update `src/collectors/__init__.py`:
 
@@ -1013,7 +1013,7 @@ Update `src/app.py`:
 
 ---
 
-### Step 11.5 — End-to-end test
+### Step 11.5 — End-to-end test ✅
 
 1. Launch with `EXTERNAL_CALLS=1 .venv/bin/python src/app.py` — confirm startup log says "external calls: on"
 2. Dashboard loads — confirm macOS Version card appears, shows correct current and latest versions in raw output, status is PASS or WARN as expected
@@ -1025,7 +1025,7 @@ Update `src/app.py`:
 
 ---
 
-### Step 11.6 — Update README and documentation
+### Step 11.6 — Update README and documentation ✅
 
 - Add `macOS Version` to the Signals monitored table under a new `### External (opt-in)` subsection
 - Add `EXTERNAL_CALLS` to the Environment variables table: default `""` (disabled), `"1"` to enable
@@ -1038,19 +1038,19 @@ Update `src/app.py`:
 
 ### Phase 11 Integration Validation
 
-- [ ] `EXTERNAL_CALLS=1` env var enables the macOS Version card
-- [ ] Without `EXTERNAL_CALLS=1`, macOS Version card does not appear (no stub or placeholder)
-- [ ] Card shows correct current macOS version in raw output
-- [ ] Card shows PASS when running the latest release in the current major train
-- [ ] Card shows WARN when a minor update is available
-- [ ] Card shows FAIL when running a prior major release
-- [ ] Network error or timeout returns UNKNOWN, not a crash or HTTP 500
-- [ ] Timeout is ≤ 10s — page load does not block indefinitely on failure
-- [ ] GET request sends no machine-identifying data (verified via `curl -v`)
-- [ ] Startup log states whether external calls are enabled
-- [ ] All 13 existing cards render correctly with and without `EXTERNAL_CALLS=1`
-- [ ] `POST /fix/macOS Version` returns HTTP 404 JSON
-- [ ] README documents the env var, the API endpoint, and the privacy model
+- [x] `EXTERNAL_CALLS=1` env var enables the macOS Version card
+- [x] Without `EXTERNAL_CALLS=1`, macOS Version card does not appear (no stub or placeholder)
+- [x] Card shows correct current macOS version in raw output
+- [x] Card shows PASS when running the latest release in the current major train
+- [x] Card shows WARN when a minor update is available (26.5 → 26.5.1)
+- [x] Card shows FAIL when running a prior major release
+- [x] Network error or timeout returns UNKNOWN, not a crash or HTTP 500
+- [x] Timeout is ≤ 10s — page load does not block indefinitely on failure
+- [x] GET request sends no machine-identifying data (verified via `curl -v`)
+- [x] Startup log states whether external calls are enabled
+- [x] All 13 existing cards render correctly with and without `EXTERNAL_CALLS=1`
+- [x] `POST /fix/macOS Version` returns HTTP 404 JSON
+- [x] README documents the env var, the API endpoint, and the privacy model
 
 ---
 

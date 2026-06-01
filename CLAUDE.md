@@ -33,13 +33,18 @@ Each phase follows this sequence:
 - Phase 8: Persistence signals — User Launch Agents, Global Launch Agents, Launch Daemons, Login Items
 - Phase 9: Authentication signals — Failed Logins, SSH Authorized Keys
 - Phase 10: Remediations — Fix buttons for Application Firewall (FAIL) and Stealth Mode (WARN)
+- Phase 11: External Calls — macOS Version check via Apple GDMF API (opt-in, `EXTERNAL_CALLS=1`)
 
-**13 signals total.** All phases 1–10 are committed.
+**13 signals (always-on) + 1 opt-in signal.** All phases 1–11 are committed.
 
 **Next phases (stub only, not started):**
-- Phase 11: External Calls (macOS update check, CVE lookups — opt-in only)
 - Phase 12: Alerting (macOS native notifications on state change)
 - Phase 13: History & Trends (SQLite, trend view)
+
+**Phase 11 key decisions:**
+- Data source: Apple GDMF (`https://gdmf.apple.com/v2/pmv`) — authoritative, no identifying data sent
+- HTTP: `urllib.request` (stdlib), 10s timeout, single request per page load
+- Version comparison: parse as int tuples; FAIL if current major < max major in feed; WARN if minor behind; PASS if current = latest in train
 
 ## Adding a new signal (collector)
 

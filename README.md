@@ -69,6 +69,14 @@ WARN on authentication signals means activity was detected — review if unexpec
 | **Failed Logins** | `log show` (loginwindow + sshd, past 24h) | Failed authentication attempts at the macOS login screen or via SSH. A WARN may be a mistyped password or an external probe — review the listed events. |
 | **SSH Authorized Keys** | `~/.ssh/authorized_keys` | Keys that allow passwordless remote login to this machine. If present, anyone holding a matching private key can SSH in. |
 
+### External (opt-in)
+
+These signals make outbound network requests and are disabled by default. Enable with `EXTERNAL_CALLS=1`.
+
+| Signal | What it checks | Why it matters |
+|--------|---------------|----------------|
+| **macOS Version** | Compares `sw_vers` output against Apple's GDMF feed | Running an out-of-date macOS version means missing security patches. WARN = minor update available; FAIL = running a prior major release no longer receiving security backports. |
+
 Status values: **PASS** (green) · **FAIL** (red) · **WARN** (amber) · **UNKNOWN** (yellow, check failed or output unrecognized)
 
 ## Remediations
@@ -106,7 +114,8 @@ MacBook_Security/
 │   │   ├── system_integrity.py  # SIP, Gatekeeper, FileVault, Secure Boot checks
 │   │   ├── network.py           # Application Firewall, Stealth Mode, Listening Services
 │   │   ├── persistence.py       # User/Global Launch Agents, Launch Daemons, Login Items
-│   │   └── auth.py              # Failed Logins, SSH Authorized Keys
+│   │   ├── auth.py              # Failed Logins, SSH Authorized Keys
+│   │   └── external.py          # macOS Version (opt-in, requires EXTERNAL_CALLS=1)
 │   ├── remediations/
 │   │   ├── __init__.py          # REMEDIATIONS registry (signal → label, cmd, applies_to)
 │   │   └── executor.py          # run_fix() — executes fix via osascript with admin privileges
@@ -124,6 +133,7 @@ MacBook_Security/
 |----------|---------|-------------|
 | `PORT` | `8000` | Port the server listens on |
 | `REFRESH_INTERVAL` | `0` | Auto-refresh interval in seconds. `0` disables auto-refresh (on-demand only). Any positive integer enables the countdown and automatic page reload. |
+| `EXTERNAL_CALLS` | `""` | Set to `1` to enable opt-in signals that make outbound network requests (currently: macOS Version check). |
 | `FLASK_DEBUG` | — | Must not be set — the app will refuse to start if it is |
 
 To enable auto-refresh every 30 seconds:
@@ -131,3 +141,13 @@ To enable auto-refresh every 30 seconds:
 ```zsh
 REFRESH_INTERVAL=30 .venv/bin/python src/app.py
 ```
+
+To enable the macOS version check:
+
+```zsh
+EXTERNAL_CALLS=1 .venv/bin/python src/app.py
+```
+
+## Privacy
+
+When `EXTERNAL_CALLS=1` is set, the dashboard makes one `GET` request per page load to `https://gdmf.apple.com/v2/pmv` (Apple's official MDM version feed). No machine-identifying data is transmitted — only a standard `User-Agent` header is sent. The response is used solely to compare version strings; nothing is stored or forwarded.

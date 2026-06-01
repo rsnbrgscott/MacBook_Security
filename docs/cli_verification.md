@@ -572,4 +572,109 @@ osascript -e 'do shell script "/usr/libexec/ApplicationFirewall/socketfilterfw -
 **Key findings:**
 - Both commands exit 0 with empty stdout on success — success must be inferred from exit code, not output content
 - Cancel produces exit 1 with `"User canceled."` in stderr (AppleScript error -128) — must be caught and surfaced cleanly
+
+---
+
+## Phase 11 — External Calls
+
+Recorded on macOS 26.5 (build 25F71), Apple Silicon, 2026-06-01.
+
+### sw_vers
+
+```
+$ sw_vers -productVersion
+26.5
+
+$ sw_vers -buildVersion
+25F71
+```
+
+### Candidate API 1: Apple GDMF
+
+**URL:** `https://gdmf.apple.com/v2/pmv`
+
+**Request headers (curl -v, no cookies, no session tokens):**
+```
+> GET /v2/pmv HTTP/1.1
+> Host: gdmf.apple.com
+> User-Agent: curl/8.7.1
+> Accept: */*
+```
+No machine-identifying data sent.
+
+**Response shape (relevant keys):**
+```json
+{
+  "PublicAssetSets": {
+    "macOS": [
+      {
+        "ProductVersion": "26.5.1",
+        "Build": "25F80",
+        "PostingDate": "2026-06-01",
+        "ExpirationDate": "2026-08-30",
+        "SupportedDevices": [...]
+      },
+      ...
+    ]
+  }
+}
+```
+
+**All macOS entries (ProductVersion / Build / PostingDate), sorted:**
+```
+11.7.11  20G1443   2026-02-18
+11.7.11  20G1443   2026-06-01
+12.7.6   21H1320   2026-02-18
+12.7.6   21H1320   2026-06-01
+13.7.8   22H730    2026-02-18
+13.7.8   22H730    2026-06-01
+14.8.4   23J319    2026-02-18
+14.8.5   23J624    2026-03-24
+14.8.7   23J520    2026-05-11
+14.8.7   23J520    2026-06-01
+15.7.4   24G517    2026-02-18
+15.7.5   24G624    2026-03-24
+15.7.7   24G720    2026-05-11
+15.7.7   24G720    2026-06-01
+26.3     25D125    2026-02-18
+26.3.1   25D2128   2026-03-04
+26.3.1   25D2128   2026-03-04
+26.3.2   25D2140   2026-03-10
+26.4     25E246    2026-03-24
+26.4.1   25E253    2026-04-09
+26.5     25F71     2026-05-11
+26.5.1   25F80     2026-06-01
+26.5.1   25F80     2026-06-01
+```
+Note: duplicate entries appear because GDMF publishes the same version under different expiry-window asset sets.
+
+### Candidate API 2: Sofa Feed
+
+**URL:** `https://sofa.macadmins.io/v1/macos_data_feed.json` — **DEPRECATED** (returns a plain-text deprecation notice, not JSON).  
+**New URL:** `https://sofafeed.macadmins.io/v1/macos_data_feed.json` — works but shows macOS 26.5 as latest (lags GDMF on day-of-release updates).
+
+### Chosen API: GDMF
+
+Reasons: Apple-authoritative, no identifying data in request, stable JSON shape relied upon by MDM solutions, more current than Sofa (updated same-day as Apple releases).
+
+### Version comparison logic
+
+**Status mapping:**
+
+| Condition | Status |
+|-----------|--------|
+| Current version = latest in its major train | PASS |
+| Minor update available (same major, lower version) | WARN |
+| Running a prior major (e.g., 15.x when 26.x is current) | FAIL |
+| API unreachable / timeout / parse failure | UNKNOWN |
+
+**Algorithm:**
+1. Parse all `ProductVersion` strings from `PublicAssetSets.macOS[]`
+2. Convert each to a tuple of ints for reliable numeric comparison: `(26, 5, 1)` > `(26, 5)` after zero-padding
+3. Find the maximum major version across all entries → current-generation major
+4. If `current_major < max_major` → FAIL
+5. If `current_major == max_major` → find max version within that major; PASS if equal, WARN if behind
+6. Deduplicate version tuples before comparison (GDMF has duplicate entries)
+
+**Expected result on this machine (26.5 vs 26.5.1 latest):** WARN
 - State was restored to original (firewall disabled, stealth off) after verification to give Step 10.5 a clean FAIL baseline to test from

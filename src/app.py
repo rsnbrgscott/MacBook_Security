@@ -31,7 +31,7 @@ def _get_refresh_interval() -> int:
 
 @app.route("/")
 def dashboard():
-    signals = run_all_collectors()
+    signals = run_all_collectors(external=app.config["EXTERNAL_CALLS"])
     return render_template(
         "dashboard.html",
         signals=signals,
@@ -53,9 +53,11 @@ if __name__ == "__main__":
         sys.exit(1)
 
     app.config["REFRESH_INTERVAL"] = _get_refresh_interval()
+    app.config["EXTERNAL_CALLS"] = os.environ.get("EXTERNAL_CALLS", "").strip() == "1"
     port = int(os.environ.get("PORT", 8000))
 
     interval = app.config["REFRESH_INTERVAL"]
     refresh_note = f", auto-refresh every {interval}s" if interval else ", on-demand refresh"
-    print(f"Dashboard running at http://127.0.0.1:{port} — local access only{refresh_note}")
+    external_note = ", external calls: on" if app.config["EXTERNAL_CALLS"] else ", external calls: off"
+    print(f"Dashboard running at http://127.0.0.1:{port} — local access only{refresh_note}{external_note}")
     app.run(host="127.0.0.1", port=port, debug=False)
