@@ -60,6 +60,36 @@
     {% else %}
     <p class="history-empty">No history recorded yet — <a href="/">load the dashboard</a> to capture a snapshot.</p>
     {% endif %}
+    <h2 class="history-title" style="margin-top:2.5rem;">Recent Remediation Attempts</h2>
+
+    {% if fix_log %}
+    <table class="history-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Signal</th>
+          <th>Outcome</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in fix_log %}
+        <tr>
+          <td class="ht-changed">{{ entry.ts_display }}</td>
+          <td class="ht-name">{{ entry.signal_name }}</td>
+          <td class="ht-transitions">
+            {% if entry.success %}
+              <span class="badge badge--pass">Success</span>
+            {% else %}
+              <span class="badge badge--fail">Failed{% if entry.error_message %}: {{ entry.error_message }}{% endif %}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="history-empty">No remediation attempts recorded.</p>
+    {% endif %}
   </main>
 </body>
 </html>

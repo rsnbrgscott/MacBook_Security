@@ -8,9 +8,9 @@ import os
 import sys
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 from collectors import run_all_collectors
-from history import init_db, store_snapshot, get_summary
+from history import init_db, store_snapshot, get_summary, get_fix_log, log_fix_attempt
 from remediations import REMEDIATIONS
 from remediations.executor import run_fix
 
@@ -37,6 +37,17 @@ def _get_int_env(name: str) -> int:
     return value
 
 
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; style-src 'self'; script-src 'self' 'unsafe-inline'"
+    )
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
 @app.route("/")
 def dashboard():
     """Run all collectors, persist the snapshot, and render the main dashboard page."""
@@ -53,15 +64,22 @@ def dashboard():
 @app.route("/history")
 def history_view():
     """Render the history page showing per-signal status transitions from SQLite."""
-    return render_template("history.html", summary=get_summary())
+    return render_template("history.html", summary=get_summary(), fix_log=get_fix_log())
 
 
 @app.route("/fix/<path:signal_name>", methods=["POST"])
 def fix(signal_name):
     """Execute a remediation for the named signal via a privileged osascript call."""
+    origin = request.headers.get("Origin")
+    if origin is not None:
+        expected = f"http://127.0.0.1:{app.config['PORT']}"
+        if origin != expected:
+            return jsonify({"success": False, "error": "Invalid request origin"}), 403
     if signal_name not in REMEDIATIONS:
         return jsonify({"success": False, "error": f"No remediation available for '{signal_name}'"}), 404
-    return jsonify(run_fix(signal_name))
+    result = run_fix(signal_name)
+    log_fix_attempt(signal_name, result["success"], result.get("error"))
+    return jsonify(result)
 
 
 if __name__ == "__main__":
@@ -75,6 +93,7 @@ if __name__ == "__main__":
     app.config["ALERT_INTERVAL"] = _get_int_env("ALERT_INTERVAL")
     app.config["EXTERNAL_CALLS"] = os.environ.get("EXTERNAL_CALLS", "").strip() == "1"
     port = int(os.environ.get("PORT", 8000))
+    app.config["PORT"] = port
 
     init_db()
 

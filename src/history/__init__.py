@@ -35,7 +35,32 @@ def init_db() -> None:
     _conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_snapshots ON snapshots (signal_name, ts DESC)"
     )
+    _conn.execute("""
+        CREATE TABLE IF NOT EXISTS fix_log (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts            INTEGER NOT NULL,
+            signal_name   TEXT NOT NULL,
+            success       INTEGER NOT NULL,
+            error_message TEXT
+        )
+    """)
     _conn.commit()
+
+
+def log_fix_attempt(signal_name: str, success: bool, error_message: str | None) -> None:
+    """Record one fix attempt in fix_log; never raises."""
+    try:
+        if _conn is None:
+            return
+        ts = int(time.time())
+        with _lock:
+            _conn.execute(
+                "INSERT INTO fix_log (ts, signal_name, success, error_message) VALUES (?, ?, ?, ?)",
+                (ts, signal_name, int(success), error_message),
+            )
+            _conn.commit()
+    except Exception:
+        pass
 
 
 def store_snapshot(results: list[dict]) -> None:
@@ -75,6 +100,26 @@ def _relative_time(ts: int) -> str:
         return f"{h} hour{'s' if h != 1 else ''} ago"
     d = delta // 86400
     return f"{d} day{'s' if d != 1 else ''} ago"
+
+
+def get_fix_log(limit: int = 20) -> list[dict]:
+    """Return the most recent fix attempts from fix_log, newest first."""
+    if _conn is None:
+        return []
+    with _lock:
+        rows = _conn.execute(
+            "SELECT ts, signal_name, success, error_message FROM fix_log ORDER BY ts DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [
+        {
+            "ts_display": _relative_time(ts),
+            "signal_name": signal_name,
+            "success": bool(success),
+            "error_message": error_message,
+        }
+        for ts, signal_name, success, error_message in rows
+    ]
 
 
 def get_summary() -> list[dict]:
