@@ -1,6 +1,14 @@
+# Authentication signal collectors for the macOS security dashboard.
+# Checks: Failed Logins (unified log via `log show`), SSH Authorized Keys (file read).
+# Both signals return WARN when activity is detected, PASS when clean.
+# `log show` requires Full Disk Access; empty output without an error is treated as UNKNOWN.
+
 import subprocess
 from pathlib import Path
 
+# Case-sensitive predicates — CONTAINS[c] is intentional.
+# loginwindow uses all-caps "FAILED"; sshd uses title-case "Failed"/"Invalid".
+# A case-insensitive match would catch unrelated clipboard log entries (false positives).
 _FAILED_LOGIN_PREDICATE = (
     '(process == "loginwindow" AND eventMessage CONTAINS "FAILED")'
     ' OR '
@@ -30,6 +38,7 @@ def _run(cmd: list[str], timeout: int = 30) -> tuple[str, str | None]:
 
 
 def check_failed_logins() -> dict:
+    """Query the unified log for failed GUI and SSH login attempts in the past 24 hours."""
     name = "Failed Logins"
     desc = (
         "Failed login attempts via the macOS login screen or SSH in the past 24h. "
@@ -41,6 +50,7 @@ def check_failed_logins() -> dict:
     )
     if error:
         return {"name": name, "description": desc, "status": "UNKNOWN", "raw": raw, "error": error}
+    # Empty output with no error means Full Disk Access was denied — not a clean result.
     if not raw:
         return {
             "name": name, "description": desc, "status": "UNKNOWN", "raw": "",
@@ -49,12 +59,14 @@ def check_failed_logins() -> dict:
     lines = [ln for ln in raw.splitlines() if ln.strip() and not ln.startswith("Timestamp")]
     if not lines:
         return {"name": name, "description": desc, "status": "PASS", "raw": "No failed login events in past 24h.", "error": None}
+    # Cap displayed output at 20 lines to keep the dashboard readable.
     trimmed = "\n".join(lines[:20])
     suffix = f"\n... ({len(lines) - 20} more lines)" if len(lines) > 20 else ""
     return {"name": name, "description": desc, "status": "WARN", "raw": trimmed + suffix, "error": None}
 
 
 def check_ssh_keys() -> dict:
+    """Check ~/.ssh/authorized_keys for any keys that permit remote login to this machine."""
     name = "SSH Authorized Keys"
     desc = (
         "Keys in ~/.ssh/authorized_keys that allow remote login to this machine. "
@@ -64,6 +76,7 @@ def check_ssh_keys() -> dict:
     try:
         if not path.exists():
             return {"name": name, "description": desc, "status": "PASS", "raw": "No authorized keys found.", "error": None}
+        # Skip blank lines and comments — only count active key entries.
         lines = [ln for ln in path.read_text().splitlines() if ln.strip() and not ln.startswith("#")]
         if not lines:
             return {"name": name, "description": desc, "status": "PASS", "raw": "No authorized keys found.", "error": None}
@@ -73,6 +86,7 @@ def check_ssh_keys() -> dict:
 
 
 if __name__ == "__main__":
+    # Quick smoke-test: run this file directly to see current signal output.
     checks = [
         ("Failed Logins", check_failed_logins),
         ("SSH Authorized Keys", check_ssh_keys),

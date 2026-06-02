@@ -1,3 +1,12 @@
+"""SQLite-backed history store for signal status snapshots.
+
+Snapshots are written on every dashboard load and every alerter poll cycle.
+Only status changes are recorded (deduplication by comparing to the most
+recent row for each signal). Data older than _RETENTION_DAYS is pruned on
+each write. The connection is shared across the main thread and the alerter
+thread; all writes are serialised with _lock.
+"""
+
 import sqlite3
 import threading
 import time
@@ -11,6 +20,7 @@ _conn: sqlite3.Connection | None = None
 
 
 def init_db() -> None:
+    """Open (or create) the SQLite database and ensure the snapshots table exists."""
     global _conn
     _DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     _conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
@@ -29,6 +39,7 @@ def init_db() -> None:
 
 
 def store_snapshot(results: list[dict]) -> None:
+    """Persist status for each signal, skipping rows where status hasn't changed."""
     if _conn is None:
         return
     ts = int(time.time())
@@ -37,6 +48,7 @@ def store_snapshot(results: list[dict]) -> None:
         for signal in results:
             name = signal["name"]
             status = signal["status"]
+            # Only insert a new row when the status differs from the most recent entry.
             row = _conn.execute(
                 "SELECT status FROM snapshots WHERE signal_name = ? ORDER BY ts DESC LIMIT 1",
                 (name,),
@@ -51,6 +63,7 @@ def store_snapshot(results: list[dict]) -> None:
 
 
 def _relative_time(ts: int) -> str:
+    """Convert a Unix timestamp to a human-readable relative string (e.g. '3 hours ago')."""
     delta = int(time.time()) - ts
     if delta < 60:
         return "just now"
@@ -65,6 +78,7 @@ def _relative_time(ts: int) -> str:
 
 
 def get_summary() -> list[dict]:
+    """Return per-signal status history sorted by name, for rendering the history page."""
     if _conn is None:
         return []
     with _lock:
@@ -81,6 +95,7 @@ def get_summary() -> list[dict]:
         entries = by_signal[name]
         last_ts, last_status = entries[-1]
 
+        # Build a list of status transitions for display; cap at the 5 most recent.
         transitions = [
             {
                 "from_status": entries[i - 1][1],

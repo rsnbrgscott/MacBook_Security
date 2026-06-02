@@ -1,3 +1,9 @@
+# Flask entry point for the macOS security dashboard.
+# Serves the single-page dashboard at http://127.0.0.1:PORT (local only).
+# All signal collection, history storage, and remediation execution are
+# delegated to the collectors, history, and remediations packages.
+# Never import this file as a module — run it directly with: .venv/bin/python src/app.py
+
 import os
 import sys
 from pathlib import Path
@@ -18,6 +24,7 @@ app = Flask(
 
 
 def _get_int_env(name: str) -> int:
+    """Read an env var as a non-negative integer; exit with an error message if invalid."""
     raw = os.environ.get(name, "0").strip()
     try:
         value = int(raw)
@@ -32,6 +39,7 @@ def _get_int_env(name: str) -> int:
 
 @app.route("/")
 def dashboard():
+    """Run all collectors, persist the snapshot, and render the main dashboard page."""
     signals = run_all_collectors(external=app.config["EXTERNAL_CALLS"])
     store_snapshot(signals)
     return render_template(
@@ -44,17 +52,21 @@ def dashboard():
 
 @app.route("/history")
 def history_view():
+    """Render the history page showing per-signal status transitions from SQLite."""
     return render_template("history.html", summary=get_summary())
 
 
 @app.route("/fix/<path:signal_name>", methods=["POST"])
 def fix(signal_name):
+    """Execute a remediation for the named signal via a privileged osascript call."""
     if signal_name not in REMEDIATIONS:
         return jsonify({"success": False, "error": f"No remediation available for '{signal_name}'"}), 404
     return jsonify(run_fix(signal_name))
 
 
 if __name__ == "__main__":
+    # Refuse to start in Flask debug mode — it re-executes the file and would
+    # spawn duplicate background threads (alerter, poll loop).
     if os.environ.get("FLASK_DEBUG", "0").strip() not in ("0", "false", ""):
         print("ERROR: FLASK_DEBUG is set. This dashboard does not run in debug mode.", file=sys.stderr)
         sys.exit(1)
@@ -66,6 +78,8 @@ if __name__ == "__main__":
 
     init_db()
 
+    # Start the background alerter thread only when ALERT_INTERVAL > 0.
+    # Imported here to avoid a circular import at module load time.
     if app.config["ALERT_INTERVAL"] > 0:
         from alerting import start_alerter
         start_alerter(app.config["ALERT_INTERVAL"], external=app.config["EXTERNAL_CALLS"])

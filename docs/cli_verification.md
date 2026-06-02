@@ -717,3 +717,118 @@ sqlite3 is part of the Python stdlib — no additional dependency required.
 ### Transition-only write verification
 
 Two consecutive `store_snapshot()` calls with 13 signals, second call with identical statuses → only 13 rows written total (no duplicates). Verified by querying `data/history.db` directly.
+
+---
+
+## Phase 14 — Sharing & Remote Access
+
+Recorded on macOS 26.5.1 (build 25F80), Apple Silicon, 2026-06-02.
+
+### Remote Login (SSH Server)
+
+**Service discovery:** On macOS 26, the SSH launch daemon is at `/System/Library/LaunchDaemons/ssh.plist` with label `com.openssh.sshd` (changed from `com.apple.sshd` on prior macOS versions).
+
+**Command:** `launchctl print system/com.openssh.sshd`
+
+**OFF state (Remote Login disabled in System Settings):**
+```
+Bad request.
+Could not find service "com.openssh.sshd" in domain for system
+Exit: 113
+```
+
+**ON state (Remote Login enabled in System Settings):**
+```
+system/com.openssh.sshd = {
+    active count = 0
+    path = (submitted by smd[541])
+    type = Submitted
+    state = not running
+
+    program = /usr/libexec/sshd-keygen-wrapper
+    arguments = {
+        sshd-keygen-wrapper
+    }
+    ...
+}
+Exit: 0
+```
+
+**Candidates ruled out:**
+- `defaults read /Library/Preferences/com.apple.RemoteLogin RemoteLoginEnabled` → key does not exist in either state (exit 1 in both)
+- `systemsetup -getremotelogin` → requires admin ("You need administrator access to run this tool... exiting!")
+- `launchctl print-disabled system` → does not list `com.openssh.sshd` at all (not in the disabled services table)
+
+**Decision:** Use `launchctl print system/com.openssh.sshd`. Exit 0 = service loaded = FAIL. Exit 113 + "Could not find service" = service not loaded = PASS. Any other error = UNKNOWN.
+
+---
+
+### Screen Sharing / Remote Management
+
+**Service label:** `com.apple.screensharing` (confirmed via `/System/Library/LaunchDaemons/com.apple.screensharing.plist`).
+
+**Remote Management vs Screen Sharing:** Both "Screen Sharing" and "Remote Management" (Apple Remote Desktop) in System Settings control the same `com.apple.screensharing` service. `com.apple.remotemanagementd` is a separate always-running infrastructure daemon unrelated to the on/off state of sharing. Decision: merge into one signal ("Screen Sharing / Remote Management").
+
+**Command:** `launchctl print system/com.apple.screensharing`
+
+**OFF state:**
+```
+Bad request.
+Could not find service "com.apple.screensharing" in domain for system
+Exit: 113
+```
+
+**ON state (Screen Sharing enabled in System Settings):**
+```
+system/com.apple.screensharing = {
+    active count = 0
+    path = (submitted by smd[541])
+    type = Submitted
+    state = not running
+
+    program = /System/Library/CoreServices/RemoteManagement/screensharingd.bundle/Contents/MacOS/screensharingd
+    ...
+}
+Exit: 0
+```
+
+**Decision:** Same pattern as Remote Login. Exit 0 = FAIL, exit 113 = PASS, other = UNKNOWN.
+
+---
+
+### AirDrop Receiver Mode
+
+**Command:** `defaults read com.apple.sharingd DiscoverableMode`
+
+Note: `defaults read com.apple.NetworkBrowser BrowseAllInterfaces` does not exist on macOS 26 ("domain/default pair does not exist").
+
+| System Settings AirDrop value | defaults output | Exit code |
+|-------------------------------|-----------------|-----------|
+| No One (off)                  | `Off`           | 0         |
+| Contacts Only                 | `Contacts Only` | 0         |
+| Everyone                      | `Everyone`      | 0         |
+
+The key always exists (exit 0) — AirDrop infrastructure keeps it set.
+
+**Decision:** String match on the returned value. `"Everyone"` → WARN. `"Off"` or `"Contacts Only"` → PASS. Unrecognized string or command failure → UNKNOWN.
+
+---
+
+### Remediation commands
+
+To be tested during Step 14.2. Candidate commands (require admin via osascript):
+- Remote Login: `launchctl disable system/com.openssh.sshd && launchctl stop system/com.openssh.sshd`
+- Screen Sharing: `launchctl disable system/com.apple.screensharing && launchctl stop system/com.apple.screensharing`
+
+### Remediation commands — confirmed
+
+Tested via osascript on 2026-06-02.
+
+**Remote Login disable:**
+```zsh
+osascript -e 'do shell script "launchctl disable system/com.openssh.sshd && launchctl bootout system/com.openssh.sshd" with administrator privileges'
+```
+- `launchctl bootout` exit 0 — service immediately removed from system domain; `launchctl print system/com.openssh.sshd` returns exit 113 confirming PASS.
+- `launchctl disable` exit 0 — service marked disabled in launchd persistent override DB.
+
+**Decision:** Use `launchctl disable system/com.openssh.sshd && launchctl bootout system/com.openssh.sshd` as the Remote Login remediation. The Fix button applies_to {"FAIL"} (service loaded). Screen Sharing uses the same pattern with `com.apple.screensharing`.

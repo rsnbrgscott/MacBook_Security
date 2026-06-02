@@ -69,6 +69,14 @@ WARN on authentication signals means activity was detected — review if unexpec
 | **Failed Logins** | `log show` (loginwindow + sshd, past 24h) | Failed authentication attempts at the macOS login screen or via SSH. A WARN may be a mistyped password or an external probe — review the listed events. |
 | **SSH Authorized Keys** | `~/.ssh/authorized_keys` | Keys that allow passwordless remote login to this machine. If present, anyone holding a matching private key can SSH in. |
 
+### Sharing & Remote Access
+
+| Signal | What it checks | Why it matters |
+|--------|---------------|----------------|
+| **Remote Login (SSH)** | `launchctl print system/com.openssh.sshd` | Remote Login runs an SSH server that accepts inbound connections. If enabled without intent, it exposes an authenticated network listener on every interface. |
+| **Screen Sharing / Remote Management** | `launchctl print system/com.apple.screensharing` | Screen Sharing and Remote Management (ARD) both load this service. If enabled, any authorized user can view or control the screen remotely. |
+| **AirDrop Receiver Mode** | `defaults read com.apple.sharingd DiscoverableMode` | Controls who can send files to this machine wirelessly. "Everyone" makes it discoverable to any nearby device, not just contacts. WARN when set to Everyone; PASS when set to Contacts Only or Off. |
+
 ### External (opt-in)
 
 These signals make outbound network requests and are disabled by default. Enable with `EXTERNAL_CALLS=1`.
@@ -81,12 +89,14 @@ Status values: **PASS** (green) · **FAIL** (red) · **WARN** (amber) · **UNKNO
 
 ## Remediations
 
-Two signals have a **Fix** button that enables the control with a single click. macOS will prompt for your administrator password before any change is made.
+Four signals have a **Fix** button that changes the control with a single click. macOS will prompt for your administrator password before any change is made.
 
 | Signal | Fix action | Appears when |
 |--------|-----------|--------------|
 | **Application Firewall** | Enables the application firewall (`socketfilterfw --setglobalstate on`) | Status is FAIL |
 | **Stealth Mode** | Enables stealth mode (`socketfilterfw --setstealthmode on`) | Status is WARN |
+| **Remote Login (SSH)** | Disables the SSH server (`launchctl disable system/com.openssh.sshd && launchctl bootout system/com.openssh.sshd`) | Status is FAIL |
+| **Screen Sharing / Remote Management** | Disables screen sharing (`launchctl disable system/com.apple.screensharing && launchctl bootout system/com.apple.screensharing`) | Status is FAIL |
 
 The fix runs under your own account via `osascript` with administrator privileges — no `sudoers` changes are required. Clicking Cancel in the password dialog leaves the setting unchanged.
 
@@ -117,6 +127,7 @@ MacBook_Security/
 │   │   ├── network.py           # Application Firewall, Stealth Mode, Listening Services
 │   │   ├── persistence.py       # User/Global Launch Agents, Launch Daemons, Login Items
 │   │   ├── auth.py              # Failed Logins, SSH Authorized Keys
+│   │   ├── sharing.py           # Remote Login, Screen Sharing, AirDrop
 │   │   └── external.py          # macOS Version (opt-in, requires EXTERNAL_CALLS=1)
 │   ├── alerting/
 │   │   ├── __init__.py          # start_alerter() — background polling thread

@@ -1235,6 +1235,425 @@ See README: `/history` route, DB location, retention policy, project structure u
 
 ---
 
+## Phase 14 — Sharing & Remote Access Signals
+
+Security review finding: June 2026.
+
+**Goal:** Add signals for macOS sharing services that create inbound network attack surface. Remote Login, Screen Sharing, and Remote Management are default-off but are frequently enabled accidentally during setup or by software installers. AirDrop set to "Everyone" is the most common unintentional wireless exposure on personal machines.
+
+**Signals in scope:**
+
+| Signal | Source | PASS | WARN | FAIL | UNKNOWN |
+|--------|--------|------|------|------|---------|
+| Remote Login (SSH Server) | `launchctl` or `defaults` | Disabled | — | Enabled (sshd accepting connections) | Command failed or unrecognized output |
+| Screen Sharing | `launchctl` or `defaults` | Disabled | — | Enabled | Command failed |
+| AirDrop Receiver Mode | `defaults read com.apple.NetworkBrowser` or `com.apple.sharingd` | Off or Contacts Only | Everyone | — | Command failed |
+
+> **Why FAIL (not WARN) for Remote Login and Screen Sharing:** Unlike persistence signals (where WARN reflects "may be intentional"), a running SSH server or screen-sharing service creates an authenticated inbound network listener. On a personal machine, this is a direct exposure, not an advisory. A user who set it up intentionally will see FAIL and can account for it; the false-negative (missing an unintentional listener) is far more dangerous than the false-positive.
+
+> **Remote Management vs Screen Sharing:** macOS Remote Management (ARD) subsumes Screen Sharing when both are enabled. Step 14.1 determines whether they are exposed by the same launchd label. If so, merge them into one signal; if separate, create two.
+
+> **Remediations:** The fix commands (`launchctl disable system/com.apple.sshd && launchctl stop system/com.apple.sshd`) require admin privileges. Step 14.1 confirms whether these are wrappable in `osascript do shell script` as a single compound command. If confirmed, remediations are added in this phase. If the multi-command pattern proves unreliable, they are deferred to a later phase.
+
+---
+
+### Step 14.1 — Verify CLI commands for sharing service state ✅
+
+Without `sudo`, run each candidate command and record the exact output for both the on and off state of each service. Toggle each service in System Settings → General → Sharing to capture both states.
+
+| Command | What to verify |
+|---------|----------------|
+| `launchctl print-disabled system` | Does output clearly show enabled/disabled state of `com.apple.sshd` and `com.apple.screensharing` without sudo? |
+| `launchctl print system/com.apple.sshd` | Does exit code or output differ when Remote Login is on vs off? |
+| `defaults read /Library/Preferences/com.apple.RemoteLogin RemoteLoginEnabled` | Readable without sudo? Values? |
+| `defaults read com.apple.NetworkBrowser BrowseAllInterfaces` | Is this the AirDrop discoverability key? Values when off / Contacts Only / Everyone? |
+| `defaults read com.apple.sharingd DiscoverableMode` | Same question for newer macOS. Values: 0 = off, 2 = contacts only, 3 = everyone? |
+| `launchctl print system/com.apple.screensharing` | Readable without sudo? Differs on/off? |
+
+**Decision rules:**
+- Use `launchctl print-disabled system` if it clearly distinguishes enabled/disabled without sudo; fall back to `defaults read` on known preference files if not.
+- If neither works for a given service without root, mark that signal as deferred and document the limitation.
+- For AirDrop: test both `com.apple.NetworkBrowser` and `com.apple.sharingd`; use whichever returns a stable, parseable value.
+- For Remote Management: if it shares a launchd label with Screen Sharing, merge them into one signal.
+
+Also test whether the remediation commands work via osascript:
+```zsh
+osascript -e 'do shell script "launchctl disable system/com.apple.sshd && launchctl stop system/com.apple.sshd" with administrator privileges'
+```
+Record exit code, stdout, and stderr. If it exits 0 and the service actually stops, add remediations for Remote Login (and Screen Sharing if analogous) to `src/remediations/__init__.py` in Step 14.2.
+
+Record all output in `docs/cli_verification.md` under a new `## Phase 14 — Sharing & Remote Access` heading.
+
+**Validation:** ✅ On/off state output recorded for all services. All commands work without sudo. Service label discovery: macOS 26 uses `com.openssh.sshd` (not `com.apple.sshd`); Screen Sharing uses `com.apple.screensharing` and merges with Remote Management (same label). AirDrop uses `defaults read com.apple.sharingd DiscoverableMode` with string values "Off" / "Contacts Only" / "Everyone". Results recorded in `docs/cli_verification.md § Phase 14`.
+
+---
+
+### Step 14.2 — Write the sharing collector module ✅
+
+Create `src/collectors/sharing.py` with collector functions for each viable signal confirmed in Step 14.1 (minimum: Remote Login and AirDrop; Screen Sharing and Remote Management if confirmed parseable):
+
+```
+check_remote_login()     → { name, description, status, raw, error }
+check_screen_sharing()   → { name, description, status, raw, error }   # if viable
+check_airdrop()          → { name, description, status, raw, error }
+```
+
+**Status logic:**
+
+| Collector | PASS | WARN | FAIL | UNKNOWN |
+|-----------|------|------|------|---------|
+| `check_remote_login` | Service confirmed disabled | — | Service confirmed enabled | Command failed or output unrecognized |
+| `check_screen_sharing` | Service confirmed disabled | — | Service confirmed enabled | Command failed or output unrecognized |
+| `check_airdrop` | Off or Contacts Only | Set to Everyone | — | Command failed or output unrecognized |
+
+Implementation rules (same as prior collectors):
+- Use `subprocess.run()` with a timeout for `launchctl` / `defaults` calls; never `shell=True`
+- Any exception or unrecognized output → `UNKNOWN` with error captured; never raise
+
+If Step 14.1 confirmed the osascript remediation pattern works, add entries to `src/remediations/__init__.py` for Remote Login and Screen Sharing (and update `applies_to` to `{"FAIL"}`).
+
+**Validation:** ✅ All three collector functions return correct dicts. Remote Login PASS (disabled), Screen Sharing PASS (disabled), AirDrop PASS ("Off"). Remediations added for Remote Login and Screen Sharing using `launchctl disable && bootout` via osascript — both confirmed working (exit 0, service leaves domain). Collector count: 16.
+
+---
+
+### Step 14.3 — Register sharing collectors ✅
+
+Update `src/collectors/__init__.py` to import and append the new sharing collectors to `_COLLECTORS`. No changes to `app.py` or the template.
+
+**Validation:** ✅ `run_all_collectors()` returns 16 results. All dicts contain the required keys (name, description, status, raw, error).
+
+---
+
+### Step 14.4 — End-to-end dashboard check
+
+Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
+
+- Confirm all new cards render with correct badge colors matching actual system state.
+- Toggle Remote Login on/off in System Settings → General → Sharing; confirm the card reflects the real state after a page refresh.
+- If remediations were added: test the Fix button end-to-end (Fix → auth dialog → page reload → card updates).
+- Force one new collector to fail (rename the command); confirm it shows UNKNOWN and other cards are unaffected; restore.
+
+**Validation:** New signal cards render correctly. Real system state changes are reflected on reload. No regressions in existing 13 cards.
+
+---
+
+### Step 14.5 — Update README and documentation
+
+- Add new signals to the "Signals monitored" section under a new `### Sharing & Remote Access` heading.
+- If any signals were deferred (not checkable without root), add a Known Limitations entry explaining why.
+- If remediations were added, document them in the Remediations section.
+- Confirm `docs/cli_verification.md` has the Phase 14 section with on/off state output for each service.
+
+**Validation:** ✅ README accurately describes each new signal and its status logic. Known Limitations updated if any signals were deferred. `docs/cli_verification.md` Phase 14 section confirmed present.
+
+---
+
+### Phase 14 Integration Validation
+
+- [x] `check_remote_login` returns FAIL when Remote Login is enabled in System Settings
+- [x] `check_remote_login` returns PASS when Remote Login is disabled
+- [x] `check_screen_sharing` (if implemented) returns FAIL when Screen Sharing is enabled; PASS when disabled
+- [x] `check_airdrop` returns WARN when AirDrop is set to Everyone
+- [x] `check_airdrop` returns PASS when AirDrop is set to Contacts Only or off
+- [x] All new signals degrade to UNKNOWN gracefully when their data source is unreadable — no crash, no 500
+- [x] All existing 13 cards render correctly — no regressions
+- [x] Any signals deferred due to privilege requirements are documented in Known Limitations
+- [x] Fix buttons (if added) for Remote Login and Screen Sharing work end-to-end via osascript auth dialog
+- [x] No collector calls `sudo`
+- [x] `docs/cli_verification.md` has Phase 14 section with on/off states recorded
+
+---
+
+## Phase 15 — Software Hygiene Signals
+
+Security review finding: June 2026.
+
+**Goal:** Add signals for automatic update configuration, non-Apple root certificate trust, and screen lock policy. These three controls are the most common systemic vulnerabilities on personal Macs: unpatched software is the dominant initial access vector; rogue root CAs enable SSL interception; and an unlocked screen is the primary physical access risk.
+
+**Signals in scope:**
+
+| Signal | Source | PASS | WARN | FAIL | UNKNOWN |
+|--------|--------|------|------|------|---------|
+| Automatic macOS Updates | `defaults read /Library/Preferences/com.apple.SoftwareUpdate` | Periodic check enabled and critical security patches set to auto-install | Check enabled but critical auto-install disabled | Automatic check disabled entirely | Command failed or key absent with ambiguous meaning |
+| Non-Apple Root Certificates | `security find-certificate -a /Library/Keychains/System.keychain` | No entries | One or more non-Apple certs present | — | Command failed |
+| Screen Lock | `defaults -currentHost read com.apple.screensaver` keys | Password required with zero delay (immediate lock) | Password required but with a delay > 0s | Password not required | Command failed or key absent |
+
+> **Automatic updates rationale:** Three independent defaults keys govern update behavior: `AutomaticCheckEnabled` (does the system check?), `CriticalUpdateInstall` (does it auto-apply security patches?), and `AutomaticDownload` (does it pre-download updates?). FAIL: `AutomaticCheckEnabled = 0` — the system will not discover available updates at all. WARN: check is enabled but `CriticalUpdateInstall = 0` — the user will be notified of security patches but they will not be applied automatically. PASS: both check and critical install are enabled.
+
+> **Non-Apple Root Certificates rationale:** Apple ships its root CA bundle in `/System/Library/Keychains/SystemRootCertificates.keychain` (protected, read-only). The `/Library/Keychains/System.keychain` is where user- or software-installed certificates land. Any entry here with TLS trust authority is a potential interception vector — corporate MitM proxy, malicious CA, or rogue MDM enrollment. `security find-certificate -a /Library/Keychains/System.keychain` lists all entries; any non-empty result is WARN with names shown in the raw field.
+
+> **Screen lock rationale:** `askForPassword = 0` means the screensaver never requires a password — FAIL. `askForPassword = 1` with `askForPasswordDelay = 0` means the lock activates immediately when the screensaver does — PASS. Any delay > 0 is a window of physical access after the screensaver starts but before the lock engages — WARN. Also capture `idleTime` (seconds until screensaver activates; 0 means never) in the raw field so the user can see the full picture.
+
+> **Remediations for auto-updates:** The fix command writes to `/Library/Preferences/com.apple.SoftwareUpdate`, which requires admin. Wrap in `osascript do shell script` for the FAIL case. Confirm in Step 15.1.
+
+---
+
+### Step 15.1 — Verify CLI commands for software hygiene signals
+
+Without `sudo`, run and record the exact output of each command:
+
+| Command | What to verify |
+|---------|----------------|
+| `defaults read /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled` | Readable without sudo? Value when on vs off? Behavior when key is absent? |
+| `defaults read /Library/Preferences/com.apple.SoftwareUpdate CriticalUpdateInstall` | Same |
+| `defaults read /Library/Preferences/com.apple.SoftwareUpdate AutomaticDownload` | Same |
+| `security find-certificate -a /Library/Keychains/System.keychain 2>&1` | What does each entry look like? How to extract the certificate subject/name? |
+| `defaults -currentHost read com.apple.screensaver askForPassword` | Value when password required vs not? Behavior when key absent? |
+| `defaults -currentHost read com.apple.screensaver askForPasswordDelay` | Value in seconds? 0 = immediate? Behavior when key absent? |
+| `defaults -currentHost read com.apple.screensaver idleTime` | Value in seconds? 0 = never? |
+
+For each defaults key: record what happens when the key is absent (`defaults` exits non-zero with an error). Determine whether absence should be treated as FAIL (the system is using a default that is insecure) or UNKNOWN (cannot determine without more context). Record the decision and rationale.
+
+Also test the auto-update remediation via osascript:
+```zsh
+osascript -e 'do shell script "defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled -bool true && defaults write /Library/Preferences/com.apple.SoftwareUpdate CriticalUpdateInstall -bool true" with administrator privileges'
+```
+Record exit code and whether the settings take effect.
+
+Record all output in `docs/cli_verification.md` under a new `## Phase 15 — Software Hygiene` heading.
+
+**Validation:** All viable data sources identified. On/off state output recorded for each setting. Absent-key semantics decided and documented.
+
+---
+
+### Step 15.2 — Write the software hygiene collector module
+
+Create `src/collectors/hygiene.py` with three functions:
+
+```
+check_auto_updates()        → { name, description, status, raw, error }
+check_root_certificates()   → { name, description, status, raw, error }
+check_screen_lock()         → { name, description, status, raw, error }
+```
+
+**`raw` field content:**
+- `check_auto_updates`: show the value of each relevant defaults key (e.g., `"AutomaticCheckEnabled: 1\nCriticalUpdateInstall: 0"`), so the user can see exactly which setting is off.
+- `check_root_certificates`: PASS → `"No non-Apple certificates found."`; WARN → certificate subject names, one per line, capped at 10.
+- `check_screen_lock`: show all three values together (e.g., `"askForPassword: 1\naskForPasswordDelay: 5\nidleTime: 300"`).
+
+Implementation rules:
+- All three use `subprocess.run()` via `_run()` for defaults/security calls; never `shell=True`
+- Absent defaults keys: apply the absent-key semantic decided in Step 15.1
+- For `check_root_certificates`: parse `security find-certificate` output to extract the common name or subject; never treat a parse failure as PASS
+
+If the auto-update remediation osascript pattern was confirmed in Step 15.1, add an entry to `src/remediations/__init__.py` for the FAIL case (`AutomaticCheckEnabled = 0`). The applies_to set is `{"FAIL"}`.
+
+**Validation:** Add a `__main__` block and run `.venv/bin/python src/collectors/hygiene.py`. All three functions return dicts with the correct keys; none raise an exception.
+
+---
+
+### Step 15.3 — Register hygiene collectors and update remediations
+
+Update `src/collectors/__init__.py` to import and append the three hygiene collectors to `_COLLECTORS`. If remediations were confirmed viable, add to `src/remediations/__init__.py`.
+
+**Validation:** Collector count increments by 3. Dashboard loads with new signal cards. Remediation button (if added) appears only on the FAIL auto-updates card.
+
+---
+
+### Step 15.4 — End-to-end dashboard check
+
+Launch the app and verify:
+- All three new cards render with correct status matching the current machine state.
+- Toggle a software update setting off in System Settings → General → Software Update; confirm the card reflects FAIL after a page refresh.
+- If remediations were added: test the Fix button for auto-updates end-to-end.
+- Force one new collector to fail; confirm UNKNOWN and no regressions.
+
+**Validation:** New cards render correctly. Real system state changes are reflected on reload. No regressions in existing signals.
+
+---
+
+### Step 15.5 — Update README and documentation
+
+- Add signals under a new `### Software Hygiene` heading in the Signals monitored section of `README.md`.
+- Document Known Limitations for any absent-key behavior that is ambiguous (e.g., if `defaults` key absence cannot be reliably distinguished from "feature disabled").
+- Confirm `docs/cli_verification.md` has the Phase 15 section.
+
+**Validation:** README accurately describes each new signal and its status logic.
+
+---
+
+### Phase 15 Integration Validation
+
+- [ ] `check_auto_updates` returns FAIL when `AutomaticCheckEnabled = 0`
+- [ ] `check_auto_updates` returns WARN when check is enabled but `CriticalUpdateInstall = 0`
+- [ ] `check_auto_updates` returns PASS when both `AutomaticCheckEnabled = 1` and `CriticalUpdateInstall = 1`
+- [ ] `check_root_certificates` returns PASS when System keychain has no entries
+- [ ] `check_root_certificates` returns WARN when any certificate is present; raw output shows certificate names
+- [ ] `check_screen_lock` returns FAIL when `askForPassword = 0`
+- [ ] `check_screen_lock` returns WARN when `askForPassword = 1` but `askForPasswordDelay > 0`
+- [ ] `check_screen_lock` returns PASS when `askForPassword = 1` and `askForPasswordDelay = 0`
+- [ ] All three signals degrade to UNKNOWN (not a crash) when their data sources are unavailable
+- [ ] Auto-update remediation (if added) works end-to-end via osascript auth dialog
+- [ ] All existing signal cards render correctly — no regressions
+- [ ] No collector calls `sudo`
+- [ ] `docs/cli_verification.md` has Phase 15 section with on/off state output recorded
+
+---
+
+## Phase 16 — Web Application Hardening
+
+Security review finding: June 2026.
+
+**Goal:** Harden the dashboard web application against the threats it faces as a locally-served HTTP service. The localhost-only binding is the primary defense, but a browser tab pointing at a malicious page while the dashboard is running is a real threat: cross-origin POST requests to `http://127.0.0.1:8000/fix/<signal>` would trigger the osascript auth dialog without any user intent. This phase adds CSRF mitigation, HTTP security headers, and a remediation audit log.
+
+**Scope:**
+
+1. **CSRF mitigation on `/fix`** — Validate the `Origin` request header. Browsers always send `Origin` on cross-origin POST requests; same-origin requests either send a matching `Origin` or omit it entirely. The rule: if `Origin` is present and does not match `http://127.0.0.1:{port}`, reject with HTTP 403. This requires no session management and no template changes.
+
+2. **HTTP security headers** — Added via an `after_request` hook so they apply to every response:
+   - `X-Frame-Options: DENY` — prevents the dashboard from being embedded in a cross-origin iframe (clickjacking)
+   - `X-Content-Type-Options: nosniff` — prevents MIME-type sniffing
+   - `Content-Security-Policy: default-src 'self'; style-src 'self'; script-src 'self' 'unsafe-inline'` — blocks external resource loading; `'unsafe-inline'` is retained because the templates use inline `<script>` blocks (tightening to nonce-based CSP requires moving those to `static/` files, which is a future improvement noted in Known Limitations)
+   - `Referrer-Policy: no-referrer`
+
+3. **Remediation audit log** — Extend `src/history/` with a `fix_log` table that records every fix attempt: timestamp, signal name, outcome (success/fail), and error message. Surface recent entries on the `/history` page.
+
+> **CSRF approach rationale:** Three common approaches are (a) session-based CSRF tokens, (b) custom request header (`X-CSRF-Token`) set by JavaScript, and (c) `Origin` header validation. Option (c) is the lightest and most appropriate for a personal localhost app: it requires no secret key, no session, and no template changes. It is effective because browsers enforce the `Origin` header on cross-origin requests and malicious pages cannot override it. Option (b) is the standard upgrade path if the threat model expands.
+
+> **`SECRET_KEY` implication:** Flask sessions require a `SECRET_KEY`. The chosen CSRF approach (Origin validation) does not use sessions, so no `SECRET_KEY` is needed in this phase. If future phases add session-based features, generate a random key at startup with `secrets.token_hex(32)` — never hardcode it.
+
+> **Inline scripts and CSP:** Moving the two inline `<script>` blocks in `dashboard.html` to `static/` files would allow removing `'unsafe-inline'` from the CSP and is the right long-term direction. It requires passing `refresh_interval` via a `data-*` attribute on a DOM element rather than direct Jinja2 interpolation into script. Deferred to a future phase.
+
+---
+
+### Step 16.1 — Add CSRF origin validation to `/fix`
+
+Update `src/app.py`:
+- In the `/fix` route, read `request.headers.get("Origin")`.
+- Compute the expected origin: `f"http://127.0.0.1:{port}"` (use the `port` variable already in scope at startup).
+- If `Origin` is present and does not equal the expected origin, return HTTP 403 with `{"success": False, "error": "Invalid request origin"}`.
+- If `Origin` is absent or matches, proceed as before.
+- Store `port` in `app.config["PORT"]` at startup so the route can access it without a closure over a local variable.
+
+**Validation:**
+```zsh
+# Cross-origin POST — must return HTTP 403:
+curl -s -o /dev/null -w "%{http_code}" -X POST \
+  -H "Origin: http://evil.example.com" http://127.0.0.1:8000/fix/Unknown
+# Expected: 403
+
+# Correct origin — must proceed to registry lookup (returns 404 for unknown signal, not 403):
+curl -s -o /dev/null -w "%{http_code}" -X POST \
+  -H "Origin: http://127.0.0.1:8000" http://127.0.0.1:8000/fix/Unknown
+# Expected: 404
+
+# No Origin header (curl default, same as same-origin browser request) — must proceed:
+curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:8000/fix/Unknown
+# Expected: 404
+```
+
+Record the curl output in `docs/cli_verification.md` under a new `## Phase 16 — Web Application Hardening` heading.
+
+---
+
+### Step 16.2 — Add HTTP security headers
+
+Update `src/app.py` with an `after_request` handler that adds the four headers to every response:
+
+```python
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; style-src 'self'; script-src 'self' 'unsafe-inline'"
+    )
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+```
+
+**Validation:**
+```zsh
+curl -sI http://127.0.0.1:8000/ | grep -E "X-Frame|X-Content|Content-Security|Referrer"
+# All four headers must appear.
+curl -sI http://127.0.0.1:8000/history | grep -E "X-Frame|X-Content"
+# Headers must also appear on the /history route.
+```
+
+---
+
+### Step 16.3 — Create the fix audit log
+
+Extend `src/history/__init__.py`:
+- In `init_db()`, create a `fix_log` table if it does not exist: `(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, signal_name TEXT NOT NULL, success INTEGER NOT NULL, error_message TEXT)`.
+- Add `log_fix_attempt(signal_name: str, success: bool, error_message: str | None) -> None`: inserts one row under `_lock`; wraps the entire body in `try/except` so a DB failure never propagates to the caller.
+
+Update `src/app.py` `/fix` route:
+- After calling `run_fix(signal_name)` and before returning the response, call `log_fix_attempt(signal_name, result["success"], result.get("error"))`.
+- Import `log_fix_attempt` at the top of `app.py` alongside the other history imports.
+
+**Validation:**
+```zsh
+# Trigger any fix attempt (cancel it at the auth dialog — the attempt is still logged).
+# Then inspect the DB:
+sqlite3 data/history.db "SELECT ts, signal_name, success, error_message FROM fix_log ORDER BY ts DESC LIMIT 5;"
+# One row should appear with the correct signal name and outcome.
+```
+
+---
+
+### Step 16.4 — Surface fix log in the history page
+
+Update `src/history/__init__.py`:
+- Add `get_fix_log(limit: int = 20) -> list[dict]`: queries the `fix_log` table ordered by `ts DESC`, returns at most `limit` rows formatted as `[{ts_display: str, signal_name: str, success: bool, error_message: str | None}]`. Uses `_relative_time()` for `ts_display`. Returns `[]` if `_conn is None`.
+
+Update `src/app.py` `/history` route:
+- Pass `fix_log=get_fix_log()` to `render_template`.
+
+Update `templates/history.html`:
+- Add a "Recent Remediation Attempts" section below the signal transition table.
+- Columns: Time | Signal | Outcome. Outcome displays "Success" or "Failed: \<error\>" depending on the `success` field.
+- If `fix_log` is empty, show "No remediation attempts recorded."
+
+**Validation:** Trigger a fix attempt from the dashboard, then open `/history`. The attempt appears in the Remediation Attempts section with the correct signal name, relative timestamp, and outcome.
+
+---
+
+### Step 16.5 — End-to-end hardening test
+
+Walk through the complete hardening validation:
+
+1. Confirm all four security headers appear in responses for `/`, `/history`, and `/fix/<signal>`.
+2. Confirm a POST with a wrong `Origin` header returns HTTP 403 and does not invoke `run_fix()`.
+3. Confirm a POST with no `Origin` header proceeds normally to registry lookup (returns 404 for an unknown signal).
+4. Confirm the dashboard Fix button still works end-to-end (it sends a same-origin `fetch()` which the Origin check allows).
+5. Trigger a fix attempt, cancel it at the auth dialog, then navigate to `/history` — the failed attempt appears in the Remediation Attempts section.
+6. Confirm no regressions: all signal cards load, auto-refresh works, signal transitions still appear in the history table.
+
+**Validation:** All six steps complete without error.
+
+---
+
+### Step 16.6 — Update README and documentation
+
+- Add a `## Security` section to `README.md` documenting the CSRF mitigation (Origin validation), the four HTTP security headers, and the fix audit log.
+- Update the `## Remediations` section to note that all fix attempts are logged and visible at `/history`.
+- Add a Known Limitations entry noting that `'unsafe-inline'` is present in the CSP because of inline scripts in the template, and that moving scripts to `static/` files is the path to a stricter policy.
+- Confirm `docs/cli_verification.md` has the Phase 16 section with curl validation output.
+
+**Validation:** README accurately describes all three hardening features.
+
+---
+
+### Phase 16 Integration Validation
+
+- [ ] `X-Frame-Options: DENY` present on all responses (`/`, `/history`, `/fix`)
+- [ ] `X-Content-Type-Options: nosniff` present on all responses
+- [ ] `Content-Security-Policy` header present on all responses; `default-src 'self'` blocks external resource loading
+- [ ] `Referrer-Policy: no-referrer` present on all responses
+- [ ] POST to `/fix` with a mismatched `Origin` header returns HTTP 403, does not invoke `run_fix()`
+- [ ] POST to `/fix` with the correct `Origin` proceeds to registry lookup as before
+- [ ] POST to `/fix` with no `Origin` header proceeds to registry lookup as before
+- [ ] Every fix attempt (success, failure, or cancel) creates a row in the `fix_log` table
+- [ ] `/history` page displays recent fix attempts with relative timestamps and outcomes
+- [ ] All existing signal cards, auto-refresh, and the signal-transitions history table function correctly — no regressions
+- [ ] No Flask `SECRET_KEY` required by this implementation
+- [ ] `'unsafe-inline'` CSP allowance documented in Known Limitations with the tightening path noted
+- [ ] README documents CSRF mitigation approach, security headers, and fix audit log
+- [ ] `docs/cli_verification.md` has Phase 16 curl validation output
+
+---
+
 ## Appendix — Cross-Phase Design Principles
 
 These constraints apply to every phase and should be checked before any phase is considered complete.
