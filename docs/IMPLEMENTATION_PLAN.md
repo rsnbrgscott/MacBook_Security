@@ -177,7 +177,7 @@ No styling yet — this is a data-pipeline check, not a UI step.
 - [x] `GET http://127.0.0.1:5000/` returns HTTP 200
 - [x] Page displays four signals with status values
 - [x] Refresh reloads the page and re-runs all collectors (verified via curl — live data confirmed)
-- [ ] Server is not accessible from another device on the local network (bind address is `127.0.0.1`)
+- [x] Server is not accessible from another device on the local network (bind address is `127.0.0.1`)
 
 ---
 
@@ -1125,15 +1125,15 @@ Exit 0, notification banner appeared. No permission dialog required. Output reco
 
 - [x] `ALERT_INTERVAL=60` starts alerter (startup log says "alerting: every 60s")
 - [x] First poll does not fire any notification (state initialised silently)
-- [ ] Status change on second+ poll fires one macOS notification per changed signal
-- [ ] All transitions (PASS→FAIL, FAIL→PASS, PASS→WARN, WARN→PASS, any→UNKNOWN) generate a notification
-- [ ] Unchanged signals produce no notification
+- [x] Status change on second+ poll fires one macOS notification per changed signal
+- [x] All transitions (PASS→FAIL, FAIL→PASS, PASS→WARN, WARN→PASS, any→UNKNOWN) generate a notification
+- [x] Unchanged signals produce no notification
 - [x] Background thread is daemon — `Ctrl-C` exits cleanly
-- [ ] Exception in background thread does not crash the app or break page loads
+- [x] Exception in background thread does not crash the app or break page loads
 - [x] `ALERT_INTERVAL=abc` exits with a clear error message
 - [x] `ALERT_INTERVAL=0` (default): startup log says "alerting: off", no thread started
 - [x] Page loads work normally with alerting running (no deadlock, no slowdown)
-- [ ] External signals (macOS Version) included in alerts when both `ALERT_INTERVAL` and `EXTERNAL_CALLS` are set
+- [x] External signals (macOS Version) included in alerts when both `ALERT_INTERVAL` and `EXTERNAL_CALLS` are set
 - [x] README documents `ALERT_INTERVAL`; startup log reflects current config
 
 ---
@@ -1226,8 +1226,8 @@ See README: `/history` route, DB location, retention policy, project structure u
 - [x] First dashboard load writes 13 initial snapshot rows
 - [x] Second load with same statuses writes 0 new rows (transition-only)
 - [x] `/history` renders correctly — table with signal rows, "no changes recorded" for unmodified signals
-- [ ] Status change on page load writes new row, transition appears in `/history`
-- [ ] Alert thread writes transitions to DB when `ALERT_INTERVAL` is set
+- [x] Status change on page load writes new row, transition appears in `/history`
+- [x] Alert thread writes transitions to DB when `ALERT_INTERVAL` is set
 - [x] DB not checked into git (`data/` in `.gitignore`)
 - [x] Rows older than 30 days are pruned on each write
 - [x] DB error / `_conn is None` does not crash page loads or alert thread
@@ -1388,7 +1388,7 @@ Security review finding: June 2026.
 
 ---
 
-### Step 15.1 — Verify CLI commands for software hygiene signals
+### Step 15.1 — Verify CLI commands for software hygiene signals ✅
 
 Without `sudo`, run and record the exact output of each command:
 
@@ -1521,7 +1521,7 @@ Security review finding: June 2026.
 
 ---
 
-### Step 16.1 — Add CSRF origin validation to `/fix`
+### Step 16.1 — Add CSRF origin validation to `/fix` ✅
 
 Update `src/app.py`:
 - In the `/fix` route, read `request.headers.get("Origin")`.
@@ -1551,7 +1551,7 @@ Record the curl output in `docs/cli_verification.md` under a new `## Phase 16 �
 
 ---
 
-### Step 16.2 — Add HTTP security headers
+### Step 16.2 — Add HTTP security headers ✅
 
 Update `src/app.py` with an `after_request` handler that adds the four headers to every response:
 
@@ -1577,7 +1577,7 @@ curl -sI http://127.0.0.1:8000/history | grep -E "X-Frame|X-Content"
 
 ---
 
-### Step 16.3 — Create the fix audit log
+### Step 16.3 — Create the fix audit log ✅
 
 Extend `src/history/__init__.py`:
 - In `init_db()`, create a `fix_log` table if it does not exist: `(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, signal_name TEXT NOT NULL, success INTEGER NOT NULL, error_message TEXT)`.
@@ -1597,7 +1597,7 @@ sqlite3 data/history.db "SELECT ts, signal_name, success, error_message FROM fix
 
 ---
 
-### Step 16.4 — Surface fix log in the history page
+### Step 16.4 — Surface fix log in the history page ✅
 
 Update `src/history/__init__.py`:
 - Add `get_fix_log(limit: int = 20) -> list[dict]`: queries the `fix_log` table ordered by `ts DESC`, returns at most `limit` rows formatted as `[{ts_display: str, signal_name: str, success: bool, error_message: str | None}]`. Uses `_relative_time()` for `ts_display`. Returns `[]` if `_conn is None`.
@@ -1614,7 +1614,7 @@ Update `templates/history.html`:
 
 ---
 
-### Step 16.5 — End-to-end hardening test
+### Step 16.5 — End-to-end hardening test ✅
 
 Walk through the complete hardening validation:
 
@@ -1629,7 +1629,7 @@ Walk through the complete hardening validation:
 
 ---
 
-### Step 16.6 — Update README and documentation
+### Step 16.6 — Update README and documentation ✅
 
 - Add a `## Security` section to `README.md` documenting the CSRF mitigation (Origin validation), the four HTTP security headers, and the fix audit log.
 - Update the `## Remediations` section to note that all fix attempts are logged and visible at `/history`.
@@ -1642,20 +1642,773 @@ Walk through the complete hardening validation:
 
 ### Phase 16 Integration Validation
 
-- [ ] `X-Frame-Options: DENY` present on all responses (`/`, `/history`, `/fix`)
-- [ ] `X-Content-Type-Options: nosniff` present on all responses
-- [ ] `Content-Security-Policy` header present on all responses; `default-src 'self'` blocks external resource loading
-- [ ] `Referrer-Policy: no-referrer` present on all responses
-- [ ] POST to `/fix` with a mismatched `Origin` header returns HTTP 403, does not invoke `run_fix()`
-- [ ] POST to `/fix` with the correct `Origin` proceeds to registry lookup as before
-- [ ] POST to `/fix` with no `Origin` header proceeds to registry lookup as before
-- [ ] Every fix attempt (success, failure, or cancel) creates a row in the `fix_log` table
-- [ ] `/history` page displays recent fix attempts with relative timestamps and outcomes
-- [ ] All existing signal cards, auto-refresh, and the signal-transitions history table function correctly — no regressions
-- [ ] No Flask `SECRET_KEY` required by this implementation
-- [ ] `'unsafe-inline'` CSP allowance documented in Known Limitations with the tightening path noted
-- [ ] README documents CSRF mitigation approach, security headers, and fix audit log
-- [ ] `docs/cli_verification.md` has Phase 16 curl validation output
+- [x] `X-Frame-Options: DENY` present on all responses (`/`, `/history`, `/fix`)
+- [x] `X-Content-Type-Options: nosniff` present on all responses
+- [x] `Content-Security-Policy` header present on all responses; `default-src 'self'` blocks external resource loading
+- [x] `Referrer-Policy: no-referrer` present on all responses
+- [x] POST to `/fix` with a mismatched `Origin` header returns HTTP 403, does not invoke `run_fix()`
+- [x] POST to `/fix` with the correct `Origin` proceeds to registry lookup as before
+- [x] POST to `/fix` with no `Origin` header proceeds to registry lookup as before
+- [x] Every fix attempt (success, failure, or cancel) creates a row in the `fix_log` table
+- [x] `/history` page displays recent fix attempts with relative timestamps and outcomes
+- [x] All existing signal cards, auto-refresh, and the signal-transitions history table function correctly — no regressions
+- [x] No Flask `SECRET_KEY` required by this implementation
+- [x] `'unsafe-inline'` CSP allowance documented in Known Limitations with the tightening path noted
+- [x] README documents CSRF mitigation approach, security headers, and fix audit log
+- [x] `docs/cli_verification.md` has Phase 16 curl validation output
+
+---
+
+## Phase 17 — Dashboard Card Improvements
+
+**Goal:** Improve individual signal card usability — visual urgency hierarchy, readable raw output, actionable fix buttons, and a page-level freshness indicator — without changing the flat grid structure (that is Phase 19).
+
+Files changed: `templates/dashboard.html`, `static/style.css`
+
+---
+
+### Step 17.1 — Card urgency tinting ✅
+
+Add a 3px left border to each card whose color reflects its status. PASS cards receive no accent border (the default card border remains).
+
+In `static/style.css`, add per-status modifiers after the `.card` block:
+
+```css
+.card--fail    { border-left: 3px solid var(--badge-fail-bg); }
+.card--warn    { border-left: 3px solid var(--badge-warn-bg); }
+.card--unknown { border-left: 3px solid var(--badge-unknown-bg); }
+```
+
+In `templates/dashboard.html`, change `<div class="card">` to:
+
+```html
+<div class="card card--{{ signal.status | lower }}">
+```
+
+**Validation:** Load the dashboard. FAIL cards have a red left border, WARN cards amber, UNKNOWN yellow, PASS cards show only the default `var(--bg-card-border)` border on all sides.
+
+---
+
+### Step 17.2 — Raw output: max-height with scroll ✅
+
+Constrain the `.raw-output` pre block so long outputs (Listening Services, Launch Agents) scroll within the card rather than expanding it indefinitely.
+
+In `static/style.css`, add to the `.raw-output` rule:
+
+```css
+max-height: 8rem;
+overflow-y: auto;
+```
+
+**Validation:** Open the dashboard and find a signal with multi-line raw output (e.g., Listening Services or User Launch Agents). The pre block is capped at 8 rem height and scrolls vertically. Short single-line outputs are unaffected.
+
+---
+
+### Step 17.3 — Collapsible raw output for PASS cards ✅
+
+Wrap the raw output in a `<details>/<summary>` element. On PASS cards, the block is collapsed by default. On FAIL/WARN/UNKNOWN cards, it is expanded by default.
+
+In `templates/dashboard.html`, replace:
+
+```html
+<pre class="raw-output">{{ signal.raw }}</pre>
+```
+
+with:
+
+```html
+<details class="raw-details"{% if signal.status != 'PASS' %} open{% endif %}>
+  <summary class="raw-summary">Raw output</summary>
+  <pre class="raw-output">{{ signal.raw }}</pre>
+</details>
+```
+
+In `static/style.css`, add:
+
+```css
+.raw-details {
+  font-size: 0.75rem;
+}
+.raw-summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  padding: 0.2rem 0;
+  user-select: none;
+}
+.raw-summary:hover {
+  color: var(--text-primary);
+}
+```
+
+**Validation:** PASS cards show only the "Raw output" disclosure triangle (collapsed). FAIL/WARN/UNKNOWN cards show the raw output block expanded. Clicking the summary toggles correctly in both directions.
+
+---
+
+### Step 17.4 — Collapsible description on PASS cards ✅
+
+On PASS cards, the description is visually de-emphasised and toggled via a small info button. On FAIL/WARN/UNKNOWN cards, the description is always visible as it provides action context.
+
+In `templates/dashboard.html`, replace:
+
+```html
+<p class="signal-description">{{ signal.description }}</p>
+```
+
+with:
+
+```html
+{% if signal.status == 'PASS' %}
+<details class="desc-details">
+  <summary class="desc-summary">What this checks</summary>
+  <p class="signal-description">{{ signal.description }}</p>
+</details>
+{% else %}
+<p class="signal-description">{{ signal.description }}</p>
+{% endif %}
+```
+
+In `static/style.css`, add:
+
+```css
+.desc-details {
+  font-size: 0.875rem;
+}
+.desc-summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  user-select: none;
+}
+.desc-summary:hover {
+  color: var(--text-primary);
+}
+```
+
+**Validation:** PASS cards show the description collapsed under a "What this checks" disclosure. FAIL/WARN/UNKNOWN cards show the description text unconditionally. Clicking the summary on a PASS card expands the description.
+
+---
+
+### Step 17.5 — Fix button prominence ✅
+
+Replace the ghost-style fix button with a solid amber/orange accent so it is clearly the primary action on a FAIL or WARN card.
+
+In `static/style.css`, add a new variable:
+
+```css
+--fix-btn-bg:       #b45309;
+--fix-btn-bg-hover: #92400e;
+--fix-btn-text:     #fffbeb;
+```
+
+Update the `.fix-btn` rule:
+
+```css
+.fix-btn {
+  align-self: flex-start;
+  padding: 0.35rem 0.9rem;
+  background-color: var(--fix-btn-bg);
+  color: var(--fix-btn-text);
+  border: none;
+  border-radius: var(--radius);
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.fix-btn:hover {
+  background-color: var(--fix-btn-bg-hover);
+}
+.fix-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+```
+
+**Validation:** Fix buttons on FAIL/WARN cards render as solid amber buttons. Hover darkens the background. Disabled state is visually distinct.
+
+---
+
+### Step 17.6 — Inline two-step fix confirmation ✅
+
+Replace the `confirm()` dialog with an in-button two-step flow: first click sets the button to a "Confirm?" state with a Cancel link; second click on the button submits. Pressing Cancel or clicking elsewhere restores the original label.
+
+In `templates/dashboard.html`, replace the entire fix-button JS block with:
+
+```js
+(function () {
+  document.querySelectorAll('.fix-btn').forEach(function (btn) {
+    var label = btn.dataset.label;
+    var confirming = false;
+    var cancelLink = null;
+
+    function reset() {
+      confirming = false;
+      btn.textContent = label;
+      btn.disabled = false;
+      if (cancelLink && cancelLink.parentNode) {
+        cancelLink.parentNode.removeChild(cancelLink);
+      }
+      cancelLink = null;
+    }
+
+    function submit() {
+      btn.disabled = true;
+      btn.textContent = 'Applying…';
+      if (cancelLink && cancelLink.parentNode) {
+        cancelLink.parentNode.removeChild(cancelLink);
+      }
+      cancelLink = null;
+      fetch('/fix/' + encodeURIComponent(btn.dataset.signal), { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.success) {
+            btn.textContent = 'Applied — reloading…';
+            setTimeout(function () { location.reload(); }, 1000);
+          } else {
+            alert('Could not apply fix: ' + (data.error || 'Unknown error'));
+            reset();
+          }
+        })
+        .catch(function (err) {
+          alert('Request failed: ' + err);
+          reset();
+        });
+    }
+
+    btn.addEventListener('click', function () {
+      if (confirming) {
+        submit();
+      } else {
+        confirming = true;
+        btn.textContent = 'Confirm?';
+        cancelLink = document.createElement('button');
+        cancelLink.textContent = 'Cancel';
+        cancelLink.className = 'fix-cancel';
+        cancelLink.addEventListener('click', function (e) {
+          e.stopPropagation();
+          reset();
+        });
+        btn.insertAdjacentElement('afterend', cancelLink);
+      }
+    });
+  });
+})();
+```
+
+In `static/style.css`, add:
+
+```css
+.fix-cancel {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0.35rem 0.5rem;
+  font-family: var(--font-sans);
+}
+.fix-cancel:hover {
+  color: var(--text-primary);
+}
+```
+
+**Validation:** Click a Fix button → label changes to "Confirm?" and a Cancel button appears. Click Cancel → both elements restore to original state. Click Confirm? → button shows "Applying…", disabled. On success: "Applied — reloading…" appears for ~1 s then page reloads. On failure: alert shows, button restores.
+
+---
+
+### Step 17.7 — "Last checked" timestamp in header ✅
+
+Display a muted "Last checked: just now" line in the header that reflects when the page was rendered. Because Flask renders the page on each request, this timestamp corresponds to the moment the collectors ran.
+
+In `templates/dashboard.html`, add inside `.header-controls` (before the nav links):
+
+```html
+<span class="last-checked" id="last-checked-label">Just now</span>
+```
+
+Add a small JS block that counts up from 0 seconds after page load and updates the label every minute:
+
+```js
+(function () {
+  var el = document.getElementById('last-checked-label');
+  var loaded = Date.now();
+  function update() {
+    var secs = Math.round((Date.now() - loaded) / 1000);
+    if (secs < 60) {
+      el.textContent = 'Just now';
+    } else {
+      var mins = Math.floor(secs / 60);
+      el.textContent = 'Last checked: ' + mins + ' min' + (mins !== 1 ? 's' : '') + ' ago';
+    }
+  }
+  setInterval(update, 30000);
+})();
+```
+
+In `static/style.css`, add:
+
+```css
+.last-checked {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+```
+
+**Validation:** On page load, the label reads "Just now". After 60+ seconds without a reload (disable auto-refresh), the label updates to "Last checked: 1 min ago". With auto-refresh active, the label resets to "Just now" on each reload.
+
+---
+
+### Phase 17 Integration Validation
+
+- [x] FAIL cards have a red left border, WARN cards amber, UNKNOWN yellow, PASS cards have no left accent border
+- [x] Raw output blocks have `max-height: 8rem` and scroll vertically when content overflows
+- [x] Raw output is collapsed (`<details>` closed) on PASS cards and expanded on FAIL/WARN/UNKNOWN cards
+- [x] Description text is collapsed on PASS cards and always visible on FAIL/WARN/UNKNOWN cards
+- [x] Fix buttons render as solid amber, not ghost style
+- [x] First click on Fix button shows "Confirm?" + Cancel; Cancel restores original label
+- [x] Confirming a fix shows "Applying…" (disabled) then "Applied — reloading…" for ~1 s before reload
+- [x] "Just now" label appears in the header on every page load
+- [x] No regressions in auto-refresh countdown, History nav link, or Refresh button
+- [x] All 19 always-on signal cards render correctly; opt-in signal card renders correctly when `EXTERNAL_CALLS=1`
+
+---
+
+## Phase 18 — History Page + Cross-Page Infrastructure
+
+**Goal:** Improve the `/history` page (absolute timestamps, client-side filter, section subtitle) and add two cross-page improvements (favicon, mid-range responsive breakpoint) that touch both templates.
+
+Files changed: `templates/history.html`, `templates/dashboard.html`, `static/style.css`
+
+---
+
+### Step 18.1 — Absolute timestamps on hover (history page)
+
+Pass the raw Unix timestamp alongside the relative string so the full ISO date/time is available as a tooltip. Update `get_summary()` and `get_fix_log()` to include a `ts_iso` field.
+
+In `src/history/__init__.py`:
+
+1. In `get_fix_log()`, add `"ts_iso"` to each dict:
+
+```python
+import datetime
+...
+"ts_iso": datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S"),
+```
+
+2. In `get_summary()`, add `"last_changed_iso"` to each result dict (only when `len(entries) > 1`):
+
+```python
+"last_changed_iso": datetime.datetime.fromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M:%S") if len(entries) > 1 else None,
+```
+
+Also add `"ts_iso"` to each transition dict:
+
+```python
+"ts_iso": datetime.datetime.fromtimestamp(entries[i][0]).strftime("%Y-%m-%d %H:%M:%S"),
+```
+
+In `templates/history.html`:
+
+- On the `ht-changed` cell in the signal transitions table, add `title="{{ row.last_changed_iso }}"` when the value is present.
+- On each `ht-when` span in transition rows, add `title="{{ t.ts_iso }}"`.
+- On `ht-changed` cells in the fix log table, add `title="{{ entry.ts_iso }}"`.
+
+**Validation:** Hover over a relative-time cell in either table — a tooltip shows the absolute date/time string (e.g., "2026-06-02 14:33:07").
+
+---
+
+### Step 18.2 — Client-side filter for signal transitions table
+
+Add a plain text input above the signal transitions table. Typing filters rows by signal name (case-insensitive substring match) without a page reload.
+
+In `templates/history.html`, add above the signal transitions `<table>`:
+
+```html
+<div class="filter-bar">
+  <input type="search" id="signal-filter" class="filter-input" placeholder="Filter by signal name…" autocomplete="off">
+</div>
+```
+
+Add a `<script>` block at the bottom of `<body>`:
+
+```js
+(function () {
+  var input = document.getElementById('signal-filter');
+  if (!input) return;
+  var rows = document.querySelectorAll('#signal-history-body tr');
+  input.addEventListener('input', function () {
+    var q = input.value.toLowerCase();
+    rows.forEach(function (row) {
+      var name = (row.querySelector('.ht-name') || {}).textContent || '';
+      row.style.display = name.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
+    });
+  });
+})();
+```
+
+Add `id="signal-history-body"` to the signal transitions `<tbody>`.
+
+In `static/style.css`, add:
+
+```css
+.filter-bar {
+  margin-bottom: 0.75rem;
+}
+.filter-input {
+  background-color: var(--bg-card);
+  border: 1px solid var(--bg-card-border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  padding: 0.4rem 0.75rem;
+  width: 16rem;
+  outline: none;
+}
+.filter-input:focus {
+  border-color: var(--text-muted);
+}
+```
+
+**Validation:** Type a partial signal name in the filter box. Only matching rows remain visible. Clearing the input restores all rows. No page reload occurs.
+
+---
+
+### Step 18.3 — Remediation Attempts subtitle
+
+Add a subtitle paragraph below the "Recent Remediation Attempts" heading, matching the style of the signal history subtitle.
+
+In `templates/history.html`, after the `<h2>Recent Remediation Attempts</h2>` element, add:
+
+```html
+<p class="history-subtitle">Each fix attempt is recorded regardless of outcome, including user cancellations. Entries are displayed newest first.</p>
+```
+
+**Validation:** The Remediation Attempts section shows the subtitle in muted text, visually consistent with the Signal History subtitle above.
+
+---
+
+### Step 18.4 — Favicon
+
+Add an inline SVG shield favicon to both pages so the app is identifiable in a browser tab.
+
+In both `templates/dashboard.html` and `templates/history.html`, add inside `<head>`:
+
+```html
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2315803d'><path d='M12 2L4 6v6c0 5.25 3.5 10.15 8 11.35C16.5 22.15 20 17.25 20 12V6l-8-4z'/></svg>">
+```
+
+**Validation:** Both browser tabs show a green shield icon in the tab bar. No additional static file is created.
+
+---
+
+### Step 18.5 — Mid-range responsive breakpoint
+
+Add a 720px breakpoint so the card grid uses a single column in split-screen window widths, not just at sub-480px.
+
+In `static/style.css`, update the existing `@media` block to also cover 720px:
+
+```css
+@media (max-width: 720px) {
+  .card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  .card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+```
+
+**Validation:** Resize the browser window to ~700px wide. Cards stack in a single column. At full width (>720px), the auto-fill grid resumes. The 480px header stacking still works.
+
+---
+
+### Phase 18 Integration Validation
+
+- [ ] Hovering over any relative-time cell in the signal transitions table shows a tooltip with the absolute date/time
+- [ ] Hovering over relative-time cells in the Remediation Attempts table shows tooltips
+- [ ] Typing in the filter box hides non-matching signal rows; clearing restores all rows
+- [ ] The Remediation Attempts section has a subtitle paragraph in muted text
+- [ ] Both browser tabs (dashboard and history) show a green shield favicon
+- [ ] At ~700px window width, the card grid stacks to a single column
+- [ ] At full width, the card grid uses the auto-fill multi-column layout
+- [ ] No regressions on the signal transitions table or fix log table
+
+---
+
+## Phase 19 — Dashboard Structure: Summary Bar, Category Groupings, Status Sorting
+
+**Goal:** Restructure the dashboard's card grid into labelled category sections, add a summary bar for at-a-glance posture, and sort cards within each category by severity (FAIL → WARN → UNKNOWN → PASS).
+
+Files changed: `src/collectors/__init__.py`, `src/app.py`, `templates/dashboard.html`, `static/style.css`
+
+---
+
+### Step 19.1 — Add `CATEGORIES` constant to `src/collectors/__init__.py`
+
+Add a module-level list that defines the display order and membership of each signal category. The names must exactly match the `name` key returned by each collector.
+
+```python
+CATEGORIES: list[tuple[str, list[str]]] = [
+    ("System Integrity", ["System Integrity Protection", "Gatekeeper", "FileVault", "Secure Boot"]),
+    ("Network", ["Application Firewall", "Stealth Mode", "Listening Services"]),
+    ("Persistence", ["User Launch Agents", "Global Launch Agents", "Launch Daemons", "Login Items"]),
+    ("Authentication", ["Failed Logins", "SSH Authorized Keys"]),
+    ("Sharing & Remote Access", ["Remote Login", "Screen Sharing / Remote Management", "AirDrop Receiver Mode"]),
+    ("Software Hygiene", ["Automatic Updates", "Root Certificate Trust", "Screen Lock"]),
+]
+```
+
+Signals not listed in `CATEGORIES` (currently only "macOS Version") are rendered in an "External / Opt-in" section.
+
+**Validation:** `from collectors import CATEGORIES` succeeds in a Python REPL. `len(CATEGORIES)` is 6. The flat list of all names has 19 entries matching the 19 always-on signal names exactly.
+
+---
+
+### Step 19.2 — Register `status_sort` Jinja2 filter in `src/app.py`
+
+After `app = Flask(...)`, add:
+
+```python
+@app.template_filter('status_sort')
+def _status_sort(signals_list):
+    order = {'FAIL': 0, 'WARN': 1, 'UNKNOWN': 2, 'PASS': 3}
+    return sorted(signals_list, key=lambda s: order.get(s.get('status', ''), 4))
+```
+
+**Validation:** `{{ [{'status':'PASS'},{'status':'FAIL'}] | status_sort }}` in a test template returns FAIL first.
+
+---
+
+### Step 19.3 — Pass category data to the dashboard template
+
+In `src/app.py`, update the `dashboard()` route's `render_template` call to pass category metadata:
+
+```python
+from collectors import run_all_collectors, CATEGORIES
+
+@app.route("/")
+def dashboard():
+    signals = run_all_collectors(external=app.config["EXTERNAL_CALLS"])
+    store_snapshot(signals)
+    cat_names = frozenset(n for _, names in CATEGORIES for n in names)
+    return render_template(
+        "dashboard.html",
+        signals=signals,
+        refresh_interval=app.config["REFRESH_INTERVAL"],
+        remediations=REMEDIATIONS,
+        categories=CATEGORIES,
+        categorized_names=cat_names,
+    )
+```
+
+**Validation:** `curl -s http://127.0.0.1:8000/ | grep -c 'card'` returns the same count as before (all signals still render).
+
+---
+
+### Step 19.4 — Restructure `templates/dashboard.html` with category sections
+
+Replace `<main class="card-grid">` with a `.dashboard-main` container that loops over categories, rendering a heading and an inner `.card-grid` for each. Sort cards within each category via the `status_sort` filter. Append uncategorized signals in an "External / Opt-in" section.
+
+```html
+<main class="dashboard-main">
+  {% for category_name, category_signal_names in categories %}
+    {% set cat_signals = signals | selectattr('name', 'in', category_signal_names) | list %}
+    {% if cat_signals %}
+    <section class="signal-category">
+      <h2 class="category-heading">{{ category_name }}</h2>
+      <div class="card-grid">
+        {% for signal in cat_signals | status_sort %}
+        <div class="card card--{{ signal.status | lower }}">
+          ... (card contents unchanged) ...
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+  {% endfor %}
+
+  {% set uncategorized = signals | rejectattr('name', 'in', categorized_names) | list %}
+  {% if uncategorized %}
+  <section class="signal-category">
+    <h2 class="category-heading">External / Opt-in</h2>
+    <div class="card-grid">
+      {% for signal in uncategorized | status_sort %}
+      <div class="card card--{{ signal.status | lower }}">
+        ... (card contents unchanged) ...
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+</main>
+```
+
+**Validation:** Dashboard renders six sections with category headings. Each section's cards are sorted FAIL → WARN → UNKNOWN → PASS. No signal is missing or duplicated. With `EXTERNAL_CALLS=1`, a seventh "External / Opt-in" section appears.
+
+---
+
+### Step 19.5 — Add summary bar
+
+Add a compact status count row between the header and the first category section. Each count is a clickable anchor that jumps to the first card of that status in document order (i.e., the first FAIL across all categories, which due to sorting will appear early).
+
+In `templates/dashboard.html`, compute counts and emit anchor IDs from Python-side data. Since Jinja2 does not support mutable state across loop iterations cleanly, pass pre-computed counts from `app.py`:
+
+In `src/app.py`, within the `dashboard()` route, compute counts after collecting:
+
+```python
+from collections import Counter
+status_counts = Counter(s['status'] for s in signals)
+```
+
+Pass `status_counts=status_counts` to `render_template`.
+
+In `templates/dashboard.html`, add after the `<header>` and before `<main>`:
+
+```html
+<div class="summary-bar">
+  {% for status in ['FAIL', 'WARN', 'UNKNOWN', 'PASS'] %}
+  {% set count = status_counts.get(status, 0) %}
+  <a class="summary-item summary-item--{{ status | lower }}"
+     href="#status-first-{{ status | lower }}">
+    <span class="summary-count">{{ count }}</span>
+    <span class="summary-label">{{ status }}</span>
+  </a>
+  {% endfor %}
+</div>
+```
+
+Add `id="status-first-{{ signal.status | lower }}"` to the first card of each status encountered across the full sorted render. Use a `namespace` to track which status IDs have been emitted:
+
+```jinja2
+{% set ns = namespace(seen_fail=false, seen_warn=false, seen_unknown=false, seen_pass=false) %}
+```
+
+Inside the card loop, before the opening `<div class="card ...">`:
+
+```jinja2
+{% if signal.status == 'FAIL' and not ns.seen_fail %}
+  {% set ns.seen_fail = true %}{% set anchor = 'status-first-fail' %}
+{% elif signal.status == 'WARN' and not ns.seen_warn %}
+  {% set ns.seen_warn = true %}{% set anchor = 'status-first-warn' %}
+{% elif signal.status == 'UNKNOWN' and not ns.seen_unknown %}
+  {% set ns.seen_unknown = true %}{% set anchor = 'status-first-unknown' %}
+{% elif signal.status == 'PASS' and not ns.seen_pass %}
+  {% set ns.seen_pass = true %}{% set anchor = 'status-first-pass' %}
+{% else %}
+  {% set anchor = '' %}
+{% endif %}
+<div class="card card--{{ signal.status | lower }}"{% if anchor %} id="{{ anchor }}"{% endif %}>
+```
+
+The `namespace` must be declared once before the outer `{% for category_name, ... %}` loop so the first-occurrence tracking spans all categories.
+
+In `static/style.css`, add:
+
+```css
+/* ── Summary bar ───────────────────────────────────────────────────────── */
+.summary-bar {
+  display: flex;
+  gap: 1rem;
+  max-width: 960px;
+  margin: 0 auto 1.5rem;
+  flex-wrap: wrap;
+}
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem 1.25rem;
+  border-radius: var(--radius);
+  text-decoration: none;
+  background-color: var(--bg-card);
+  border: 1px solid var(--bg-card-border);
+  min-width: 5rem;
+  transition: border-color 0.15s ease;
+}
+.summary-item:hover {
+  border-color: var(--text-muted);
+}
+.summary-count {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+.summary-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin-top: 0.15rem;
+}
+.summary-item--fail   .summary-count { color: var(--badge-fail-bg); }
+.summary-item--warn   .summary-count { color: var(--badge-warn-bg); }
+.summary-item--unknown .summary-count { color: var(--badge-unknown-bg); }
+.summary-item--pass   .summary-count { color: var(--badge-pass-bg); }
+.summary-item--fail   .summary-label { color: var(--badge-fail-bg); }
+.summary-item--warn   .summary-label { color: var(--badge-warn-bg); }
+.summary-item--unknown .summary-label { color: var(--badge-unknown-bg); }
+.summary-item--pass   .summary-label { color: var(--badge-pass-bg); }
+```
+
+**Validation:** A four-item summary bar appears between the header and the first category section. Counts match the actual number of signals at each status. Clicking a non-zero count scrolls to the first card of that status. Zero counts display "0" but clicking a zero-count link has no scroll effect (no matching anchor).
+
+---
+
+### Step 19.6 — CSS for category structure
+
+In `static/style.css`, add:
+
+```css
+/* ── Dashboard main with categories ───────────────────────────────────── */
+.dashboard-main {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+
+.category-heading {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--bg-card-border);
+  margin-bottom: 1rem;
+}
+```
+
+Remove (or leave harmlessly) the `max-width` and `margin` from `.card-grid` since those are now on `.dashboard-main`. The `display: grid` rule on `.card-grid` remains unchanged.
+
+**Validation:** Each category section has a small-caps muted heading with a horizontal rule beneath it. Sections are separated by visible vertical space. The card grid inside each section behaves identically to the pre-phase flat grid.
+
+---
+
+### Phase 19 Integration Validation
+
+- [ ] `CATEGORIES` is importable from `collectors` and lists all 19 always-on signal names across 6 categories
+- [ ] Dashboard renders exactly 6 category sections with correct headings
+- [ ] Cards within each category are sorted FAIL → WARN → UNKNOWN → PASS
+- [ ] No signal is missing; no signal appears more than once
+- [ ] With `EXTERNAL_CALLS=1`, a seventh "External / Opt-in" section appears with the macOS Version card
+- [ ] Summary bar shows correct counts for each status
+- [ ] Clicking a non-zero count in the summary bar scrolls to the first card of that status
+- [ ] All Phase 17 card-level styles (tinting, collapsible raw/description, fix button) work inside the new category structure
+- [ ] `app.py` changes are limited to: `CATEGORIES` import, `status_sort` filter registration, `status_counts` computation, and updated `render_template` call
+- [ ] No regressions in auto-refresh, fix flow, History nav link, or Refresh button
 
 ---
 

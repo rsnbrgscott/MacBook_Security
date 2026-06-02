@@ -963,3 +963,55 @@ $ pmset -g | grep displaysleep
  displaysleep         10 (display sleep prevented by Amphetamine)
 ```
 Display sleep set to 10 minutes. Shown in raw field only — not used for status determination.
+
+---
+
+## Phase 16 — Web Application Hardening
+
+### Step 16.1 — CSRF origin validation on `/fix`
+
+```zsh
+# Cross-origin POST — must return HTTP 403:
+$ curl -s -o /dev/null -w "%{http_code}" -X POST \
+  -H "Origin: http://evil.example.com" http://127.0.0.1:8000/fix/Unknown
+403
+
+# Correct origin — must proceed to registry lookup (returns 404 for unknown signal, not 403):
+$ curl -s -o /dev/null -w "%{http_code}" -X POST \
+  -H "Origin: http://127.0.0.1:8000" http://127.0.0.1:8000/fix/Unknown
+404
+
+# No Origin header — must proceed:
+$ curl -s -o /dev/null -w "%{http_code}" -X POST http://127.0.0.1:8000/fix/Unknown
+404
+```
+
+### Step 16.2 — HTTP security headers
+
+```zsh
+$ curl -sI http://127.0.0.1:8000/ | grep -E "X-Frame|X-Content|Content-Security|Referrer"
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+Content-Security-Policy: default-src 'self'; style-src 'self'; script-src 'self' 'unsafe-inline'
+Referrer-Policy: no-referrer
+
+$ curl -sI http://127.0.0.1:8000/history | grep -E "X-Frame|X-Content"
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+```
+
+### Step 16.3 — Fix audit log
+
+```zsh
+$ sqlite3 data/history.db ".schema fix_log"
+CREATE TABLE fix_log (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts            INTEGER NOT NULL,
+            signal_name   TEXT NOT NULL,
+            success       INTEGER NOT NULL,
+            error_message TEXT
+        );
+
+$ sqlite3 data/history.db "SELECT ts, signal_name, success, error_message FROM fix_log ORDER BY ts DESC LIMIT 5;"
+1780437375|Application Firewall|1|
+```

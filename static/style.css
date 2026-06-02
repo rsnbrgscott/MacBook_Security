@@ -20,6 +20,10 @@
   --refresh-bg-hover: #1d4ed8;
   --refresh-text:     #ffffff;
 
+  --fix-btn-bg:       #b45309;
+  --fix-btn-bg-hover: #92400e;
+  --fix-btn-text:     #fffbeb;
+
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --font-mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
 
@@ -63,6 +67,11 @@ body {
   display: flex;
   align-items: center;
   gap: 1rem;
+}
+
+.last-checked {
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
 .refresh-indicator {
@@ -111,6 +120,10 @@ body {
   flex-direction: column;
   gap: 0.75rem;
 }
+
+.card--fail    { border-left: 3px solid var(--badge-fail-bg); }
+.card--warn    { border-left: 3px solid var(--badge-warn-bg); }
+.card--unknown { border-left: 3px solid var(--badge-unknown-bg); }
 
 .card-header {
   display: flex;
@@ -174,6 +187,41 @@ body {
   white-space: pre-wrap;
   word-break: break-all;
   overflow-x: auto;
+  max-height: 8rem;
+  overflow-y: auto;
+}
+
+/* ── Description disclosure (PASS cards) ──────────────────────────────── */
+.desc-details {
+  font-size: 0.875rem;
+}
+
+.desc-summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  user-select: none;
+}
+
+.desc-summary:hover {
+  color: var(--text-primary);
+}
+
+/* ── Raw details disclosure ────────────────────────────────────────────── */
+.raw-details {
+  font-size: 0.75rem;
+}
+
+.raw-summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  padding: 0.2rem 0;
+  user-select: none;
+}
+
+.raw-summary:hover {
+  color: var(--text-primary);
 }
 
 /* ── Error message ─────────────────────────────────────────────────────── */
@@ -185,26 +233,39 @@ body {
 /* ── Fix button ────────────────────────────────────────────────────────── */
 .fix-btn {
   align-self: flex-start;
-  padding: 0.3rem 0.85rem;
-  background-color: transparent;
-  color: var(--text-muted);
-  border: 1px solid var(--bg-card-border);
+  padding: 0.35rem 0.9rem;
+  background-color: var(--fix-btn-bg);
+  color: var(--fix-btn-text);
+  border: none;
   border-radius: var(--radius);
   font-family: var(--font-sans);
   font-size: 0.8rem;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition: background-color 0.15s ease;
 }
 
 .fix-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--text-muted);
+  background-color: var(--fix-btn-bg-hover);
 }
 
 .fix-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.fix-cancel {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  padding: 0.35rem 0.5rem;
+}
+
+.fix-cancel:hover {
+  color: var(--text-primary);
 }
 
 /* ── Nav link ──────────────────────────────────────────────────────────── */

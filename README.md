@@ -109,6 +109,8 @@ Five signals have a **Fix** button that changes the control with a single click.
 
 The fix runs under your own account via `osascript` with administrator privileges — no `sudoers` changes are required. Clicking Cancel in the password dialog leaves the setting unchanged.
 
+Every fix attempt — including cancellations and failures — is recorded in `data/history.db` and visible in the **Remediation Attempts** table at `/history`.
+
 ## Known limitations
 
 - **Apple Silicon only.** The Secure Boot check uses `system_profiler SPiBridgeDataType`, which is not available on Intel Macs.
@@ -118,6 +120,7 @@ The fix runs under your own account via `osascript` with administrator privilege
 - **Listening Services shows current-user processes only.** `lsof` runs without elevated privileges, so system-owned processes (running as root) do not appear in the Listening Services output.
 - **Sudo activity is not monitored.** `sudo`'s audit record (the command that was run) is written to the BSM audit trail (`/var/audit/`), which requires root to read. The unified log only surfaces background system-level sudo calls (~500+ per day from daemons), which cannot be distinguished from user invocations. Deferred until a root-free data source is identified.
 - **Software update and screen lock signals rely on macOS defaults.** `AutomaticCheckEnabled`, `CriticalUpdateInstall`, and `askForPasswordDelay` are only written to disk when explicitly changed from Apple's defaults. Absence of these keys means macOS is using its built-in secure defaults (updates on, immediate lock) — this is PASS, not UNKNOWN. If a preference management tool (MDM, `defaults write`) has written `0` to any of these keys, the signal will reflect it.
+- **CSP allows `'unsafe-inline'` scripts.** The `Content-Security-Policy` header includes `'unsafe-inline'` in `script-src` because the dashboard template contains inline `<script>` blocks. Moving those scripts to files in `static/` and passing dynamic values via `data-*` attributes would allow this allowance to be removed. Deferred to a future phase.
 - **Screen Lock password state read via System Events.** The `osascript` query (`require password to wake`) reads the effective System Preferences state. If Automation access to System Events is revoked in System Settings → Privacy & Security, this collector returns UNKNOWN.
 - **Other signal categories are planned.** See `docs/SPEC.md` for the full roadmap.
 
@@ -197,6 +200,29 @@ ALERT_INTERVAL=300 .venv/bin/python src/app.py
 When `ALERT_INTERVAL` is set to a positive integer, the app runs a background thread that calls all collectors on that interval and fires a macOS notification banner whenever any signal changes status — in either direction (e.g., PASS→FAIL, FAIL→PASS, PASS→WARN).
 
 The first poll after startup silently initialises state; no notifications fire until the second poll. If the app is restarted, state resets and the first poll is again silent. Notification delivery uses `osascript display notification` — no third-party dependencies and no TCC permission required.
+
+## Security
+
+The dashboard is local-only and never listens on external interfaces, but a few hardening measures protect the `/fix` endpoint specifically.
+
+### CSRF mitigation
+
+Every `POST /fix/<signal>` request checks the `Origin` header when present. If the header is present and does not match `http://127.0.0.1:<port>`, the request is rejected with HTTP 403 and `run_fix()` is never called. Requests with no `Origin` header (same-origin browser fetch, curl without `-H Origin`) are allowed through. This prevents a malicious page loaded in another tab from triggering a remediation via a cross-origin form POST or fetch.
+
+### HTTP security headers
+
+Every response from the dashboard includes:
+
+| Header | Value | Effect |
+|--------|-------|--------|
+| `X-Frame-Options` | `DENY` | Prevents the dashboard from being embedded in an iframe on another origin |
+| `X-Content-Type-Options` | `nosniff` | Stops browsers from MIME-sniffing responses away from the declared content type |
+| `Content-Security-Policy` | `default-src 'self'; style-src 'self'; script-src 'self' 'unsafe-inline'` | Blocks external resource loading; `'unsafe-inline'` is present due to inline scripts in the template (see Known Limitations) |
+| `Referrer-Policy` | `no-referrer` | Suppresses the `Referer` header on all navigations out of the dashboard |
+
+### Fix audit log
+
+Every fix attempt is logged to the `fix_log` table in `data/history.db`, regardless of outcome (success, failure, or user cancel). The log is visible in the **Remediation Attempts** table at `/history`.
 
 ## Privacy
 

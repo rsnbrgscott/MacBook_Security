@@ -2,7 +2,7 @@
 
 ## What this project is
 
-A personal macOS security monitoring dashboard (Flask, local only, Apple Silicon). It collects security signal status using native macOS CLI tools and displays them on a single page at `http://127.0.0.1:8000`. Two signals have one-click Fix buttons that escalate via `osascript` with administrator privileges.
+A personal macOS security monitoring dashboard (Flask, local only, Apple Silicon). It collects security signal status using native macOS CLI tools and displays them on a single page at `http://127.0.0.1:8000`. Five signals have one-click Fix buttons that escalate via `osascript` with administrator privileges.
 
 **Platform:** macOS Apple Silicon only. Python 3.10+ (Homebrew: `/opt/homebrew/bin/python3`).
 
@@ -12,7 +12,7 @@ A personal macOS security monitoring dashboard (Flask, local only, Apple Silicon
 .venv/bin/python src/app.py
 ```
 
-Environment variables: `PORT` (default 8000), `REFRESH_INTERVAL` (default 0, seconds). `FLASK_DEBUG` must not be set.
+Environment variables: `PORT` (default 8000), `REFRESH_INTERVAL` (default 0, seconds), `EXTERNAL_CALLS` (default off), `ALERT_INTERVAL` (default 0, seconds). `FLASK_DEBUG` must not be set.
 
 ## Project workflow
 
@@ -29,24 +29,18 @@ Each phase follows this sequence:
 **Completed phases:**
 - Phase 1–5: Project scaffold, MVP (4 system integrity signals), dark-mode UI
 - Phase 6: Auto-refresh with configurable countdown
-- Phase 7 (implementation plan numbering): Network signals — Application Firewall, Stealth Mode, Listening Services
+- Phase 7: Network signals — Application Firewall, Stealth Mode, Listening Services
 - Phase 8: Persistence signals — User Launch Agents, Global Launch Agents, Launch Daemons, Login Items
 - Phase 9: Authentication signals — Failed Logins, SSH Authorized Keys
 - Phase 10: Remediations — Fix buttons for Application Firewall (FAIL) and Stealth Mode (WARN)
 - Phase 11: External Calls — macOS Version check via Apple GDMF API (opt-in, `EXTERNAL_CALLS=1`)
 - Phase 12: Alerting — background polling thread, macOS notifications on any status change (opt-in, `ALERT_INTERVAL=<seconds>`)
 - Phase 13: History & Trends — SQLite persistence (`data/history.db`), transition-only writes, `/history` state-change log page
+- Phase 14: Sharing & Remote Access signals — Remote Login (SSH), Screen Sharing / Remote Management, AirDrop Receiver Mode; Fix buttons for Remote Login and Screen Sharing
+- Phase 15: Software Hygiene signals — Automatic Updates, Root Certificate Trust, Screen Lock; Fix button for Automatic Updates (FAIL)
+- Phase 16: Web Application Hardening — CSRF Origin validation on `/fix`, HTTP security headers (`after_request`), fix audit log (`fix_log` table), Remediation Attempts section on `/history`
 
-**13 signals (always-on) + 1 opt-in signal.** All phases 1–13 are committed.
-
-**Next phases (stub only, not started):**
-- Phase 12: Alerting (macOS native notifications on state change)
-- Phase 13: History & Trends (SQLite, trend view)
-
-**Phase 11 key decisions:**
-- Data source: Apple GDMF (`https://gdmf.apple.com/v2/pmv`) — authoritative, no identifying data sent
-- HTTP: `urllib.request` (stdlib), 10s timeout, single request per page load
-- Version comparison: parse as int tuples; FAIL if current major < max major in feed; WARN if minor behind; PASS if current = latest in train
+**16 signals (always-on) + 1 opt-in signal.** All phases 1–15 are committed. Phase 16 is implemented but not yet committed.
 
 ## Adding a new signal (collector)
 
