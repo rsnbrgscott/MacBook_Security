@@ -30,6 +30,11 @@ from .sharing import (
     check_screen_sharing,
     check_airdrop,
 )
+from .hygiene import (
+    check_auto_updates,
+    check_root_certificates,
+    check_screen_lock,
+)
 from .external import check_macos_version
 
 # Always-on signals — run on every page load regardless of env var settings.
@@ -51,6 +56,9 @@ _COLLECTORS = [
     check_remote_login,
     check_screen_sharing,
     check_airdrop,
+    check_auto_updates,
+    check_root_certificates,
+    check_screen_lock,
 ]
 
 # Opt-in signals — only run when EXTERNAL_CALLS=1 is set in the environment.

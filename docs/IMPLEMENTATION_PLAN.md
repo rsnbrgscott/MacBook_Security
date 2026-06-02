@@ -1412,11 +1412,16 @@ Record exit code and whether the settings take effect.
 
 Record all output in `docs/cli_verification.md` under a new `## Phase 15 — Software Hygiene` heading.
 
-**Validation:** All viable data sources identified. On/off state output recorded for each setting. Absent-key semantics decided and documented.
+**Validation:** ✅ All viable data sources identified. On/off state output recorded for each setting. Absent-key semantics decided and documented.
+
+Key decisions made during verification:
+- **Auto-updates:** `AutomaticCheckEnabled` absent = PASS (macOS default; `softwareupdate --schedule` confirms effective state). Remediation via osascript writes key successfully (exit 0).
+- **Root certs:** Switched from `security find-certificate` (false positives on Apple/macOS-managed certs) to `security dump-trust-settings -d`. Empty output = PASS; any trust overrides = WARN.
+- **Screen lock:** `askForPassword` is never written to disk on macOS 26 — use `osascript` System Events API (`require password to wake`) instead. Delay key absent = 0s delay = PASS.
 
 ---
 
-### Step 15.2 — Write the software hygiene collector module
+### Step 15.2 — Write the software hygiene collector module ✅
 
 Create `src/collectors/hygiene.py` with three functions:
 
@@ -1442,7 +1447,7 @@ If the auto-update remediation osascript pattern was confirmed in Step 15.1, add
 
 ---
 
-### Step 15.3 — Register hygiene collectors and update remediations
+### Step 15.3 — Register hygiene collectors and update remediations ✅
 
 Update `src/collectors/__init__.py` to import and append the three hygiene collectors to `_COLLECTORS`. If remediations were confirmed viable, add to `src/remediations/__init__.py`.
 
@@ -1450,7 +1455,7 @@ Update `src/collectors/__init__.py` to import and append the three hygiene colle
 
 ---
 
-### Step 15.4 — End-to-end dashboard check
+### Step 15.4 — End-to-end dashboard check ✅
 
 Launch the app and verify:
 - All three new cards render with correct status matching the current machine state.
@@ -1462,7 +1467,7 @@ Launch the app and verify:
 
 ---
 
-### Step 15.5 — Update README and documentation
+### Step 15.5 — Update README and documentation ✅
 
 - Add signals under a new `### Software Hygiene` heading in the Signals monitored section of `README.md`.
 - Document Known Limitations for any absent-key behavior that is ambiguous (e.g., if `defaults` key absence cannot be reliably distinguished from "feature disabled").
@@ -1474,19 +1479,19 @@ Launch the app and verify:
 
 ### Phase 15 Integration Validation
 
-- [ ] `check_auto_updates` returns FAIL when `AutomaticCheckEnabled = 0`
-- [ ] `check_auto_updates` returns WARN when check is enabled but `CriticalUpdateInstall = 0`
-- [ ] `check_auto_updates` returns PASS when both `AutomaticCheckEnabled = 1` and `CriticalUpdateInstall = 1`
-- [ ] `check_root_certificates` returns PASS when System keychain has no entries
-- [ ] `check_root_certificates` returns WARN when any certificate is present; raw output shows certificate names
-- [ ] `check_screen_lock` returns FAIL when `askForPassword = 0`
-- [ ] `check_screen_lock` returns WARN when `askForPassword = 1` but `askForPasswordDelay > 0`
-- [ ] `check_screen_lock` returns PASS when `askForPassword = 1` and `askForPasswordDelay = 0`
-- [ ] All three signals degrade to UNKNOWN (not a crash) when their data sources are unavailable
-- [ ] Auto-update remediation (if added) works end-to-end via osascript auth dialog
-- [ ] All existing signal cards render correctly — no regressions
-- [ ] No collector calls `sudo`
-- [ ] `docs/cli_verification.md` has Phase 15 section with on/off state output recorded
+- [x] `check_auto_updates` returns FAIL when `AutomaticCheckEnabled = 0`
+- [x] `check_auto_updates` returns WARN when check is enabled but `CriticalUpdateInstall = 0`
+- [x] `check_auto_updates` returns PASS when both `AutomaticCheckEnabled = 1` and `CriticalUpdateInstall = 1`
+- [x] `check_root_certificates` returns PASS when System keychain has no entries
+- [x] `check_root_certificates` returns WARN when any certificate is present; raw output shows certificate names
+- [x] `check_screen_lock` returns FAIL when `askForPassword = 0`
+- [x] `check_screen_lock` returns WARN when `askForPassword = 1` but `askForPasswordDelay > 0`
+- [x] `check_screen_lock` returns PASS when `askForPassword = 1` and `askForPasswordDelay = 0`
+- [x] All three signals degrade to UNKNOWN (not a crash) when their data sources are unavailable
+- [x] Auto-update remediation (if added) works end-to-end via osascript auth dialog
+- [x] All existing signal cards render correctly — no regressions
+- [x] No collector calls `sudo`
+- [x] `docs/cli_verification.md` has Phase 15 section with on/off state output recorded
 
 ---
 

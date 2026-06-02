@@ -832,3 +832,134 @@ osascript -e 'do shell script "launchctl disable system/com.openssh.sshd && laun
 - `launchctl disable` exit 0 — service marked disabled in launchd persistent override DB.
 
 **Decision:** Use `launchctl disable system/com.openssh.sshd && launchctl bootout system/com.openssh.sshd` as the Remote Login remediation. The Fix button applies_to {"FAIL"} (service loaded). Screen Sharing uses the same pattern with `com.apple.screensharing`.
+
+---
+
+## Phase 15 — Software Hygiene
+
+Recorded on macOS 26.5.1 (build 25F80), Apple Silicon, 2026-06-02.
+
+---
+
+### Signal: Automatic macOS Updates
+
+**Commands and output:**
+
+```zsh
+$ defaults read /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled
+# (key absent before remediation)
+# exit: 1  — "The domain/default pair ... does not exist"
+
+$ defaults read /Library/Preferences/com.apple.SoftwareUpdate CriticalUpdateInstall
+1
+# exit: 0
+
+$ defaults read /Library/Preferences/com.apple.SoftwareUpdate AutomaticDownload
+1
+# exit: 0
+
+$ softwareupdate --schedule
+Automatic checking for updates is turned on
+# exit: 0  — effective state confirmed ON even when AutomaticCheckEnabled key is absent
+```
+
+**Full plist (relevant keys):**
+```
+AutomaticDownload = 1;
+AutomaticallyInstallMacOSUpdates = 1;
+ConfigDataInstall = 1;
+CriticalUpdateInstall = 1;
+```
+`AutomaticCheckEnabled` is absent from disk; `softwareupdate --schedule` reports it as "on" — the system uses its compiled-in default.
+
+**Absent-key semantics (decided):**
+- `AutomaticCheckEnabled` absent → **PASS** (macOS 13+ default is enabled; `softwareupdate --schedule` confirms the effective state is "on")
+- `AutomaticCheckEnabled = 0` → **FAIL** (explicitly disabled; system will not discover updates)
+- `CriticalUpdateInstall` absent → **WARN** (uncertain; treat conservatively)
+- `CriticalUpdateInstall = 0` → **WARN** (check runs but security patches not auto-installed)
+- Both keys present and = 1 → **PASS**
+
+**Remediation test:**
+```zsh
+$ osascript -e 'do shell script "defaults write /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled -bool true && defaults write /Library/Preferences/com.apple.SoftwareUpdate CriticalUpdateInstall -bool true" with administrator privileges'
+# exit: 0
+
+$ defaults read /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled
+1
+# exit: 0  — key written successfully
+```
+Remediation via osascript with administrator privileges works. Key is written to `/Library/Preferences/com.apple.SoftwareUpdate`.
+
+---
+
+### Signal: Non-Apple Root Certificates
+
+**Initial approach: `security find-certificate -a /Library/Keychains/System.keychain`**
+
+All four entries in System.keychain on this machine:
+```
+com.apple.systemdefault        — Apple internal system identity, not a CA
+com.apple.kerberos.kdc         — Apple Kerberos KDC cert, not a CA
+Apple Worldwide Developer Relations Certification Authority  — Apple WWDR signing CA
+scotts-macbook-pro-2.local     — self-signed (issuer = subject), EKU: TLS server + client auth, macOS-generated
+```
+
+Parsing `find-certificate` output to distinguish Apple-managed from third-party certs is error-prone and produces false positives (`scotts-macbook-pro-2.local` is macOS-generated but not `com.apple.*`-labeled).
+
+**Revised approach: `security dump-trust-settings -d`**
+
+```zsh
+$ security dump-trust-settings -d
+SecTrustSettingsCopyCertificates: No Trust Settings were found.
+# exit: 0
+
+$ security dump-trust-settings
+SecTrustSettingsCopyCertificates: No Trust Settings were found.
+# exit: 0
+```
+
+`dump-trust-settings -d` checks the admin/system trust domain — where third-party root CAs added by MDM, proxy software, or a malicious actor would appear. Empty output = no custom trust anchors = **PASS**.
+
+**Decision:** Use `security dump-trust-settings -d` (system domain) as the data source, NOT `find-certificate`. Rationale: `find-certificate` lists all certs including Apple-managed ones and triggers false positives; `dump-trust-settings` directly answers "are there any non-default CA trust anchors?"
+- `"No Trust Settings were found."` → **PASS**
+- Any other output → parse cert names from the output → **WARN** with names in raw field
+- Command error / unexpected output → **UNKNOWN**
+
+---
+
+### Signal: Screen Lock
+
+**Primary source: `osascript` System Events API**
+
+```zsh
+$ osascript -e 'tell application "System Events" to tell security preferences to return require password to wake'
+true
+# exit: 0
+```
+
+Returns `true` or `false`. Does NOT require TCC Accessibility permission — reads a setting, not UI state.
+
+**Why `defaults -currentHost read com.apple.screensaver askForPassword` cannot be used:**
+
+All three screensaver lock keys (`askForPassword`, `askForPasswordDelay`, `idleTime`) are absent from disk on macOS 26. The only keys in the ByHost screensaver plist are `CleanExit = 1` and `tokenRemovalAction = 0`. Despite `require password to wake` being `true`, the key is never written unless the user explicitly disables the setting. On macOS 13+, the secure default (password required immediately) is compiled-in and not persisted to disk.
+
+**Lock delay:**
+```zsh
+$ defaults -currentHost read com.apple.screensaver askForPasswordDelay
+# exit: 1  — key absent
+```
+Absent = 0 seconds delay (immediate lock on sleep/screensaver). This matches observed behavior.
+
+**Implementation design:**
+1. Run osascript to get `require password to wake` → `false` = **FAIL**, continue if `true`
+2. Run `defaults -currentHost read com.apple.screensaver askForPasswordDelay` → absent or `0` = **PASS** (immediate); `> 0` = **WARN** (delay window)
+3. Include display sleep time from `pmset -g | grep displaysleep` in raw field for context
+
+**Absent-key semantics for delay:** absent → 0 (immediate lock, **PASS**). Do NOT return UNKNOWN for absent delay key.
+
+**Display sleep for context:**
+```zsh
+$ pmset -g | grep displaysleep
+ displaysleep         10 (display sleep prevented by Amphetamine)
+```
+Display sleep set to 10 minutes. Shown in raw field only — not used for status determination.

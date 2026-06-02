@@ -77,6 +77,14 @@ WARN on authentication signals means activity was detected — review if unexpec
 | **Screen Sharing / Remote Management** | `launchctl print system/com.apple.screensharing` | Screen Sharing and Remote Management (ARD) both load this service. If enabled, any authorized user can view or control the screen remotely. |
 | **AirDrop Receiver Mode** | `defaults read com.apple.sharingd DiscoverableMode` | Controls who can send files to this machine wirelessly. "Everyone" makes it discoverable to any nearby device, not just contacts. WARN when set to Everyone; PASS when set to Contacts Only or Off. |
 
+### Software Hygiene
+
+| Signal | What it checks | Why it matters |
+|--------|---------------|----------------|
+| **Automatic Updates** | `defaults read /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled` and `CriticalUpdateInstall` | FAIL if auto-check is explicitly disabled; WARN if auto-check is on but critical/security updates are not set to install automatically; PASS if both are on (or at macOS defaults, which are secure). |
+| **Root Certificate Trust** | `security dump-trust-settings -d` | Checks for custom CA certificates added to the system-domain trust store. A rogue CA can silently intercept HTTPS traffic. PASS when no non-Apple trust overrides are present; WARN if any custom anchor is found — review the listed certificate names. |
+| **Screen Lock** | `osascript` / System Events security preferences; `defaults -currentHost read com.apple.screensaver askForPasswordDelay` | FAIL if no password is required on wake. WARN if a password is required but a grace period (delay > 0) is set, meaning the screen can be unlocked for a window after waking. PASS if password is required immediately. |
+
 ### External (opt-in)
 
 These signals make outbound network requests and are disabled by default. Enable with `EXTERNAL_CALLS=1`.
@@ -89,7 +97,7 @@ Status values: **PASS** (green) · **FAIL** (red) · **WARN** (amber) · **UNKNO
 
 ## Remediations
 
-Four signals have a **Fix** button that changes the control with a single click. macOS will prompt for your administrator password before any change is made.
+Five signals have a **Fix** button that changes the control with a single click. macOS will prompt for your administrator password before any change is made.
 
 | Signal | Fix action | Appears when |
 |--------|-----------|--------------|
@@ -97,6 +105,7 @@ Four signals have a **Fix** button that changes the control with a single click.
 | **Stealth Mode** | Enables stealth mode (`socketfilterfw --setstealthmode on`) | Status is WARN |
 | **Remote Login (SSH)** | Disables the SSH server (`launchctl disable system/com.openssh.sshd && launchctl bootout system/com.openssh.sshd`) | Status is FAIL |
 | **Screen Sharing / Remote Management** | Disables screen sharing (`launchctl disable system/com.apple.screensharing && launchctl bootout system/com.apple.screensharing`) | Status is FAIL |
+| **Automatic Updates** | Re-enables automatic update check and critical update install (`defaults write … AutomaticCheckEnabled -bool true && defaults write … CriticalUpdateInstall -bool true`) | Status is FAIL |
 
 The fix runs under your own account via `osascript` with administrator privileges — no `sudoers` changes are required. Clicking Cancel in the password dialog leaves the setting unchanged.
 
@@ -108,6 +117,8 @@ The fix runs under your own account via `osascript` with administrator privilege
 - **Local access only.** The server binds to `127.0.0.1` and is not reachable from other devices on the network.
 - **Listening Services shows current-user processes only.** `lsof` runs without elevated privileges, so system-owned processes (running as root) do not appear in the Listening Services output.
 - **Sudo activity is not monitored.** `sudo`'s audit record (the command that was run) is written to the BSM audit trail (`/var/audit/`), which requires root to read. The unified log only surfaces background system-level sudo calls (~500+ per day from daemons), which cannot be distinguished from user invocations. Deferred until a root-free data source is identified.
+- **Software update and screen lock signals rely on macOS defaults.** `AutomaticCheckEnabled`, `CriticalUpdateInstall`, and `askForPasswordDelay` are only written to disk when explicitly changed from Apple's defaults. Absence of these keys means macOS is using its built-in secure defaults (updates on, immediate lock) — this is PASS, not UNKNOWN. If a preference management tool (MDM, `defaults write`) has written `0` to any of these keys, the signal will reflect it.
+- **Screen Lock password state read via System Events.** The `osascript` query (`require password to wake`) reads the effective System Preferences state. If Automation access to System Events is revoked in System Settings → Privacy & Security, this collector returns UNKNOWN.
 - **Other signal categories are planned.** See `docs/SPEC.md` for the full roadmap.
 
 ## Project structure
@@ -128,6 +139,7 @@ MacBook_Security/
 │   │   ├── persistence.py       # User/Global Launch Agents, Launch Daemons, Login Items
 │   │   ├── auth.py              # Failed Logins, SSH Authorized Keys
 │   │   ├── sharing.py           # Remote Login, Screen Sharing, AirDrop
+│   │   ├── hygiene.py           # Automatic Updates, Root Certificate Trust, Screen Lock
 │   │   └── external.py          # macOS Version (opt-in, requires EXTERNAL_CALLS=1)
 │   ├── alerting/
 │   │   ├── __init__.py          # start_alerter() — background polling thread

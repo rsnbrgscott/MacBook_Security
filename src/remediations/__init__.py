@@ -31,12 +31,30 @@ REMEDIATIONS = {
         # disable marks the service disabled in launchd's persistent override DB;
         # bootout removes it from the current system domain immediately.
         # The Fix button appears only when the service is confirmed loaded (FAIL).
-        "cmd": "launchctl disable system/com.openssh.sshd && launchctl bootout system/com.openssh.sshd",
+        "cmd": (
+            "launchctl disable system/com.openssh.sshd"
+            " && launchctl bootout system/com.openssh.sshd"
+        ),
         "applies_to": {"FAIL"},
     },
     "Screen Sharing / Remote Management": {
         "label": "Disable Screen Sharing",
-        "cmd": "launchctl disable system/com.apple.screensharing && launchctl bootout system/com.apple.screensharing",
+        "cmd": (
+            "launchctl disable system/com.apple.screensharing"
+            " && launchctl bootout system/com.apple.screensharing"
+        ),
+        "applies_to": {"FAIL"},
+    },
+    "Automatic Updates": {
+        "label": "Enable Auto-Updates",
+        # /Library/Preferences/com.apple.SoftwareUpdate requires root to write;
+        # osascript escalates via the standard macOS password dialog.
+        "cmd": (
+            "defaults write /Library/Preferences/com.apple.SoftwareUpdate"
+            " AutomaticCheckEnabled -bool true"
+            " && defaults write /Library/Preferences/com.apple.SoftwareUpdate"
+            " CriticalUpdateInstall -bool true"
+        ),
         "applies_to": {"FAIL"},
     },
 }
