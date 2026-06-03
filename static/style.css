@@ -380,6 +380,9 @@ body {
 .history-main {
   max-width: 960px;
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
 }
 
 .history-title {
@@ -428,6 +431,26 @@ body {
 
 .history-table tbody tr:last-child td {
   border-bottom: none;
+}
+
+.history-table tbody tr:hover td {
+  background-color: var(--bg-card);
+}
+
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ht-outcome {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.ht-error-msg {
+  font-size: 0.75rem;
+  color: var(--text-error);
 }
 
 .ht-name {

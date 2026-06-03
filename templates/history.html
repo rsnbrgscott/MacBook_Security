@@ -11,91 +11,127 @@
   <header class="page-header">
     <h1 class="page-title">MacBook Security Dashboard</h1>
     <nav class="header-controls">
+      <span class="last-checked" id="last-checked-label">Just now</span>
       <a class="nav-link" href="/">Dashboard</a>
       <a class="nav-link nav-link--active" href="/history">History</a>
+      <a class="refresh-btn" href="/history">Reload</a>
     </nav>
   </header>
 
   <main class="history-main">
-    <h2 class="history-title">Signal History</h2>
-    <p class="history-subtitle">Status transitions recorded over the past 30 days. Only changes are stored — repeated identical statuses are not duplicated.</p>
+    <section class="signal-category">
+      <h2 class="category-heading">Signal History</h2>
+      <p class="history-subtitle">Status transitions recorded over the past 30 days. Only changes are stored — repeated identical statuses are not duplicated.</p>
 
-    {% if summary %}
-    <div class="filter-bar">
-      <input type="search" id="signal-filter" class="filter-input" placeholder="Filter by signal name…" autocomplete="off">
-    </div>
-    <table class="history-table">
-      <thead>
-        <tr>
-          <th>Signal</th>
-          <th>Current Status</th>
-          <th>Last Changed</th>
-          <th>Recent Transitions</th>
-        </tr>
-      </thead>
-      <tbody id="signal-history-body">
-        {% for row in summary %}
-        <tr>
-          <td class="ht-name">{{ row.name }}</td>
-          <td class="ht-status">
-            <span class="badge badge--{{ row.last_status | lower }}">{{ row.last_status }}</span>
-          </td>
-          <td class="ht-changed"{% if row.last_changed_iso %} title="{{ row.last_changed_iso }}"{% endif %}>
-            {% if row.last_changed %}{{ row.last_changed }}{% else %}<span class="ht-none">no changes recorded</span>{% endif %}
-          </td>
-          <td class="ht-transitions">
-            {% if row.transitions %}
-              {% for t in row.transitions | reverse %}
-              <div class="ht-transition">
-                <span class="badge badge--{{ t.from_status | lower }} badge--sm">{{ t.from_status }}</span>
-                <span class="ht-arrow">→</span>
-                <span class="badge badge--{{ t.to_status | lower }} badge--sm">{{ t.to_status }}</span>
-                <span class="ht-when" title="{{ t.ts_iso }}">{{ t.when }}</span>
-              </div>
-              {% endfor %}
-            {% else %}
-              <span class="ht-none">—</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <p class="history-empty">No history recorded yet — <a href="/">load the dashboard</a> to capture a snapshot.</p>
-    {% endif %}
-    <h2 class="history-title" style="margin-top:2.5rem;">Recent Remediation Attempts</h2>
-    <p class="history-subtitle">Each fix attempt is recorded regardless of outcome, including user cancellations. Entries are displayed newest first.</p>
+      {% if summary %}
+      <div class="filter-bar">
+        <input type="search" id="signal-filter" class="filter-input" placeholder="Filter by signal name…" autocomplete="off">
+      </div>
+      <div class="table-scroll">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Signal</th>
+              <th>Current Status</th>
+              <th>Last Changed</th>
+              <th>Recent Transitions</th>
+            </tr>
+          </thead>
+          <tbody id="signal-history-body">
+            {% for row in summary %}
+            <tr>
+              <td class="ht-name">{{ row.name }}</td>
+              <td class="ht-status">
+                <span class="badge badge--{{ row.last_status | lower }}">{{ row.last_status }}</span>
+              </td>
+              <td class="ht-changed"{% if row.last_changed_iso %} title="{{ row.last_changed_iso }}"{% endif %}>
+                {% if row.last_changed %}{{ row.last_changed }}{% else %}<span class="ht-none">no changes recorded</span>{% endif %}
+              </td>
+              <td class="ht-transitions">
+                {% if row.transitions %}
+                  {% for t in row.transitions | reverse %}
+                  <div class="ht-transition">
+                    <span class="badge badge--{{ t.from_status | lower }} badge--sm">{{ t.from_status }}</span>
+                    <span class="ht-arrow">→</span>
+                    <span class="badge badge--{{ t.to_status | lower }} badge--sm">{{ t.to_status }}</span>
+                    <span class="ht-when" title="{{ t.ts_iso }}">{{ t.when }}</span>
+                  </div>
+                  {% endfor %}
+                {% else %}
+                  <span class="ht-none">—</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="history-empty">No history recorded yet — <a href="/">load the dashboard</a> to capture a snapshot.</p>
+      {% endif %}
+    </section>
 
-    {% if fix_log %}
-    <table class="history-table">
-      <thead>
-        <tr>
-          <th>Time</th>
-          <th>Signal</th>
-          <th>Outcome</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for entry in fix_log %}
-        <tr>
-          <td class="ht-changed" title="{{ entry.ts_iso }}">{{ entry.ts_display }}</td>
-          <td class="ht-name">{{ entry.signal_name }}</td>
-          <td class="ht-transitions">
-            {% if entry.success %}
-              <span class="badge badge--pass">Success</span>
-            {% else %}
-              <span class="badge badge--fail">Failed{% if entry.error_message %}: {{ entry.error_message }}{% endif %}</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <p class="history-empty">No remediation attempts recorded.</p>
-    {% endif %}
+    <section class="signal-category">
+      <h2 class="category-heading">Recent Remediation Attempts</h2>
+      <p class="history-subtitle">Each fix attempt is recorded regardless of outcome, including user cancellations. Entries are displayed newest first.</p>
+
+      {% if fix_log %}
+      <div class="table-scroll">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Signal</th>
+              <th>Outcome</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in fix_log %}
+            <tr>
+              <td class="ht-changed" title="{{ entry.ts_iso }}">{{ entry.ts_display }}</td>
+              <td class="ht-name">{{ entry.signal_name }}</td>
+              <td class="ht-transitions">
+                {% if entry.success %}
+                  <span class="badge badge--pass badge--sm">Success</span>
+                {% else %}
+                  <div class="ht-outcome">
+                    <span class="badge badge--fail badge--sm">Failed</span>
+                    {% if entry.error_message %}
+                    <span class="ht-error-msg">{{ entry.error_message }}</span>
+                    {% endif %}
+                  </div>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="history-empty">No remediation attempts recorded.</p>
+      {% endif %}
+    </section>
   </main>
+
+  <script>
+    (function () {
+      var el = document.getElementById('last-checked-label');
+      var loaded = Date.now();
+      function update() {
+        var secs = Math.round((Date.now() - loaded) / 1000);
+        if (secs < 10) {
+          el.textContent = 'Just now';
+        } else if (secs < 60) {
+          el.textContent = 'Loaded: ' + secs + 's ago';
+        } else {
+          var mins = Math.floor(secs / 60);
+          el.textContent = 'Loaded: ' + mins + ' min' + (mins !== 1 ? 's' : '') + ' ago';
+        }
+      }
+      update();
+      setInterval(update, 5000);
+    })();
+  </script>
 
   <script>
     (function () {

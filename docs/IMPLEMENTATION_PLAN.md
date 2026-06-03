@@ -2412,6 +2412,186 @@ Remove (or leave harmlessly) the `max-width` and `margin` from `.card-grid` sinc
 
 ---
 
+## Phase 20 — History Page Parity
+
+**Goal:** Bring `/history` to the same level of structural and visual polish as the dashboard. Four specific gaps exist after Phase 19: (1) the history page's two sections are unstyled flat `<h2>` elements with no structural wrapping, while the dashboard uses `<section>` + `.category-heading`; (2) the header lacks a freshness indicator and a reload button; (3) the tables have no row hover state and no protection against horizontal overflow on narrow screens; (4) the fix log outcome column embeds error text directly inside a badge, making long messages awkward.
+
+Files changed: `templates/history.html`, `static/style.css`
+
+---
+
+### ✅ Step 20.1 — Section structure: wrap, heading style, remove inline style
+
+Wrap each content section in a `<section class="signal-category">` element to match the dashboard's category section structure. Apply `.category-heading` to both section headings (replacing `.history-title`). This gives both pages the same uppercase, small-caps, border-bottom heading treatment.
+
+Add a flex column layout with gap to `.history-main` so sections are spaced uniformly by the flex parent rather than by heading margin:
+
+In `static/style.css`, update `.history-main`:
+
+```css
+.history-main {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+```
+
+In `templates/history.html`:
+
+- Remove the `.history-title` and `.history-subtitle` classes from the section headings and subtitles; replace section headings with `.category-heading`.
+- Remove the inline `style="margin-top:2.5rem;"` attribute from the "Recent Remediation Attempts" heading.
+- Wrap the signal transitions section (heading + subtitle + filter bar + table) in `<section class="signal-category">`.
+- Wrap the remediation attempts section (heading + subtitle + table) in `<section class="signal-category">`.
+
+The `.history-subtitle` class and rule in `style.css` remain in place — they are still used as the subtitle paragraph style inside each section.
+
+**Validation:** Both section headings render with the same uppercase/border-bottom treatment as dashboard category headings. Vertical spacing between sections matches the dashboard. The inline `style` attribute is gone from the HTML source.
+
+---
+
+### ✅ Step 20.2 — Header parity: reload button and freshness indicator
+
+The dashboard header shows "Last checked: X ago" and a Refresh button. The history page header has only nav links. Add both elements to bring the headers to parity.
+
+In `templates/history.html`, update the `<nav class="header-controls">` block:
+
+```html
+<nav class="header-controls">
+  <span class="last-checked" id="last-checked-label">Just now</span>
+  <a class="nav-link" href="/">Dashboard</a>
+  <a class="nav-link nav-link--active" href="/history">History</a>
+  <a class="refresh-btn" href="/history">Reload</a>
+</nav>
+```
+
+Add the same counting JS block used in `dashboard.html` at the bottom of `<body>` (the script that updates `#last-checked-label` every 5 seconds — copy verbatim):
+
+```js
+(function () {
+  var el = document.getElementById('last-checked-label');
+  var loaded = Date.now();
+  function update() {
+    var secs = Math.round((Date.now() - loaded) / 1000);
+    if (secs < 10) {
+      el.textContent = 'Just now';
+    } else if (secs < 60) {
+      el.textContent = 'Loaded: ' + secs + 's ago';
+    } else {
+      var mins = Math.floor(secs / 60);
+      el.textContent = 'Loaded: ' + mins + ' min' + (mins !== 1 ? 's' : '') + ' ago';
+    }
+  }
+  update();
+  setInterval(update, 5000);
+})();
+```
+
+> Note: The label reads "Loaded:" on the history page rather than "Last checked:" to accurately reflect that this timestamp marks when the page data was fetched, not when collectors were last run.
+
+**Validation:** History page header shows "Just now", the two nav links, and a "Reload" button matching the dashboard's Refresh button style. After 10+ seconds without reloading, the label updates to "Loaded: Xs ago". Clicking Reload navigates to `/history` and resets the label.
+
+---
+
+### ✅ Step 20.3 — Table row hover state
+
+Add a subtle background tint on `tbody tr:hover` so the user has visual feedback when scanning rows — matching the interactivity level of the dashboard cards (which have hover effects via box-shadow / border transitions).
+
+In `static/style.css`, add after the `.history-table td` rule:
+
+```css
+.history-table tbody tr:hover td {
+  background-color: var(--bg-card);
+}
+```
+
+**Validation:** Hovering over any row in either table (signal transitions or fix log) produces a visible background highlight. The effect does not apply to header rows.
+
+---
+
+### ✅ Step 20.4 — Responsive table overflow wrapper
+
+On narrow screens (< 600px), the history tables contain enough columns that they overflow the viewport horizontally. Wrap each table in a scrollable container.
+
+In `templates/history.html`, wrap each `<table class="history-table">` in:
+
+```html
+<div class="table-scroll">
+  <table class="history-table">
+    ...
+  </table>
+</div>
+```
+
+In `static/style.css`, add:
+
+```css
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+```
+
+**Validation:** Resize the browser to ~400px wide. Each table scrolls horizontally within its container; the page does not grow wider than the viewport. At full width the wrapper is invisible (no visual change).
+
+---
+
+### ✅ Step 20.5 — Fix log outcome column: separate badge from error message
+
+The fix log outcome column currently embeds the error message inside the badge element:
+
+```html
+<span class="badge badge--fail">Failed: User canceled.</span>
+```
+
+This makes long error messages stretch the badge unpredictably and buries the status signal inside text. Split the column into a status badge and a separate error text:
+
+In `templates/history.html`, replace the outcome cell content:
+
+```html
+<td class="ht-transitions">
+  {% if entry.success %}
+    <span class="badge badge--pass badge--sm">Success</span>
+  {% else %}
+    <div style="display:flex; flex-direction:column; gap:0.3rem;">
+      <span class="badge badge--fail badge--sm">Failed</span>
+      {% if entry.error_message %}
+      <span class="ht-error-msg">{{ entry.error_message }}</span>
+      {% endif %}
+    </div>
+  {% endif %}
+</td>
+```
+
+In `static/style.css`, add:
+
+```css
+.ht-error-msg {
+  font-size: 0.75rem;
+  color: var(--text-error);
+}
+```
+
+**Validation:** A successful fix attempt shows a small green "Success" badge. A failed attempt shows a small red "Failed" badge with the error message below it in muted red text. Neither the badge nor the cell grows unexpectedly wide on long error messages.
+
+---
+
+### Phase 20 Integration Validation
+
+- [x] Both section headings use `.category-heading` — uppercase, small-caps, border-bottom — matching the dashboard
+- [x] No inline `style` attributes remain in `history.html`
+- [x] `.history-main` uses flex column layout; section spacing is uniform with no per-section margin hacks
+- [x] History header shows "Just now" freshness label and a "Reload" button
+- [x] Freshness label updates to "Loaded: Xs ago" after 10 seconds; updates to minutes after 60 seconds
+- [x] Clicking Reload navigates to `/history` and resets the label
+- [x] Hovering over any data row in either table shows a background highlight; header row is unaffected
+- [x] At ~400px wide, both tables scroll horizontally within their containers; no page overflow
+- [x] Fix log shows a small badge + separate error text row; long error messages do not stretch the badge
+- [x] No regressions: signal transition rows, fix log rows, filter input, tooltip hover, and favicon all function correctly
+
+---
+
 ## Appendix — Cross-Phase Design Principles
 
 These constraints apply to every phase and should be checked before any phase is considered complete.
