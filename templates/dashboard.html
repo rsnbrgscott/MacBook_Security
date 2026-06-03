@@ -40,7 +40,7 @@
   <header class="page-header">
     <h1 class="page-title">MacBook Security Dashboard</h1>
     <div class="header-controls">
-      <span class="last-checked" id="last-checked-label">Just now</span>
+      <span class="last-checked" id="last-checked-label" data-prefix="Last checked">Just now</span>
       {% if refresh_interval > 0 %}
       <span class="refresh-indicator">
         Auto-refresh in <span id="countdown">{{ refresh_interval }}</span>s
@@ -113,84 +113,10 @@
     {% endif %}
   </main>
 
-  <script>
-    (function () {
-      document.querySelectorAll('.fix-btn').forEach(function (btn) {
-        var label = btn.dataset.label;
-        var confirming = false;
-        var cancelBtn = null;
-
-        function reset() {
-          confirming = false;
-          btn.textContent = label;
-          btn.disabled = false;
-          if (cancelBtn && cancelBtn.parentNode) {
-            cancelBtn.parentNode.removeChild(cancelBtn);
-          }
-          cancelBtn = null;
-        }
-
-        function submit() {
-          btn.disabled = true;
-          btn.textContent = 'Applying…';
-          if (cancelBtn && cancelBtn.parentNode) {
-            cancelBtn.parentNode.removeChild(cancelBtn);
-          }
-          cancelBtn = null;
-          fetch('/fix/' + encodeURIComponent(btn.dataset.signal), { method: 'POST' })
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-              if (data.success) {
-                btn.textContent = 'Applied — reloading…';
-                setTimeout(function () { location.reload(); }, 1000);
-              } else {
-                alert('Could not apply fix: ' + (data.error || 'Unknown error'));
-                reset();
-              }
-            })
-            .catch(function (err) {
-              alert('Request failed: ' + err);
-              reset();
-            });
-        }
-
-        btn.addEventListener('click', function () {
-          if (confirming) {
-            submit();
-          } else {
-            confirming = true;
-            btn.textContent = 'Confirm?';
-            cancelBtn = document.createElement('button');
-            cancelBtn.textContent = 'Cancel';
-            cancelBtn.className = 'fix-cancel';
-            cancelBtn.addEventListener('click', function (e) {
-              e.stopPropagation();
-              reset();
-            });
-            btn.insertAdjacentElement('afterend', cancelBtn);
-          }
-        });
-      });
-    })();
-  </script>
-
+  <script src="/static/js/fix.js"></script>
   <script src="/static/js/utils.js"></script>
-  <script>startElapsedCounter('last-checked-label', 'Last checked');</script>
-
   {% if refresh_interval > 0 %}
-  <script>
-    (function () {
-      var remaining = {{ refresh_interval }};
-      var el = document.getElementById('countdown');
-      function tick() {
-        if (remaining <= 0) { location.reload(); return; }
-        el.textContent = remaining;
-        remaining -= 1;
-        setTimeout(tick, 1000);
-      }
-      setTimeout(tick, 1000);
-    })();
-  </script>
+  <script src="/static/js/countdown.js"></script>
   {% endif %}
 </body>
 </html>

@@ -15,3 +15,10 @@ function startElapsedCounter(elementId, prefix) {
   update();
   setInterval(update, 5000);
 }
+
+(function () {
+  var el = document.getElementById('last-checked-label');
+  if (el) {
+    startElapsedCounter('last-checked-label', el.dataset.prefix || '');
+  }
+})();

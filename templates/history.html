@@ -11,7 +11,7 @@
   <header class="page-header">
     <h1 class="page-title">MacBook Security Dashboard</h1>
     <nav class="header-controls">
-      <span class="last-checked" id="last-checked-label">Just now</span>
+      <span class="last-checked" id="last-checked-label" data-prefix="Loaded">Just now</span>
       <a class="nav-link" href="/">Dashboard</a>
       <a class="nav-link nav-link--active" href="/history">History</a>
       <a class="refresh-btn" href="/history">Reload</a>
@@ -114,21 +114,7 @@
   </main>
 
   <script src="/static/js/utils.js"></script>
-  <script>startElapsedCounter('last-checked-label', 'Loaded');</script>
 
-  <script>
-    (function () {
-      var input = document.getElementById('signal-filter');
-      if (!input) return;
-      var rows = document.querySelectorAll('#signal-history-body tr');
-      input.addEventListener('input', function () {
-        var q = input.value.toLowerCase();
-        rows.forEach(function (row) {
-          var name = (row.querySelector('.ht-name') || {}).textContent || '';
-          row.style.display = name.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
-        });
-      });
-    })();
-  </script>
+  <script src="/static/js/filter.js"></script>
 </body>
 </html>
