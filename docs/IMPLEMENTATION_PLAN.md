@@ -2592,6 +2592,81 @@ In `static/style.css`, add:
 
 ---
 
+## Phase 21 — Production WSGI Server (Waitress)
+
+**Goal:** Eliminate the Flask development-server warning that appears at startup and serve the dashboard through a production-grade WSGI server.
+
+**Background:** `app.run()` uses Werkzeug's single-threaded development server, which prints `WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.` on every startup. While this dashboard is local-only, the warning is misleading and unnecessary. Replacing Werkzeug with **Waitress** — a pure-Python WSGI server with no C extensions — silences the warning, handles concurrent requests cleanly, and requires only a one-line change to `app.py`.
+
+**Why Waitress:** pure Python (no compilation, no OS-level dependencies), actively maintained, installable via pip, and works identically on Apple Silicon. The API is a drop-in for `app.run()`.
+
+---
+
+### Step 21.1 — Add waitress to project dependencies
+
+Add `waitress` to `requirements.txt` and install it into the project virtualenv:
+
+```
+waitress==3.0.2
+```
+
+Run:
+
+```zsh
+.venv/bin/pip install waitress==3.0.2
+```
+
+Verify the installed version:
+
+```zsh
+.venv/bin/python -c "import waitress; print(waitress.__version__)"
+```
+
+**Validation:** Command prints `3.0.2` (or the version installed). No errors.
+
+---
+
+### Step 21.2 — Replace `app.run()` with `waitress.serve()`
+
+In `src/app.py`, replace the final `app.run(...)` call with a `waitress.serve()` call that binds to the same host and port.
+
+At the top of `src/app.py`, add the import after the existing imports:
+
+```python
+from waitress import serve
+```
+
+Replace:
+
+```python
+app.run(host="127.0.0.1", port=port, debug=False)
+```
+
+With:
+
+```python
+serve(app, host="127.0.0.1", port=port, threads=4)
+```
+
+The `threads=4` value matches the concurrency needs of a single-user local dashboard and is the Waitress default. `debug=False` is dropped because Waitress has no debug mode — it is always production-grade.
+
+**Validation:** Start the app with `.venv/bin/python src/app.py`. The Werkzeug development-server warning is absent. The startup line `Dashboard running at http://127.0.0.1:8000 — local access only…` still prints. Loading `http://127.0.0.1:8000` returns the dashboard correctly.
+
+---
+
+### Phase 21 Integration Validation
+
+- [x] `requirements.txt` lists `waitress` with a pinned version
+- [x] `.venv/bin/pip show waitress` confirms it is installed
+- [x] Starting the app produces no `WARNING: This is a development server` line
+- [x] Dashboard loads at `http://127.0.0.1:8000` and all signals render
+- [x] History page loads at `http://127.0.0.1:8000/history`
+- [x] Fix button flow works end-to-end (confirm → apply → reload)
+- [x] App still binds to `127.0.0.1` only (not `0.0.0.0`)
+- [x] `PORT` env var is respected: `PORT=9000 .venv/bin/python src/app.py` serves on port 9000
+
+---
+
 ## Appendix — Cross-Phase Design Principles
 
 These constraints apply to every phase and should be checked before any phase is considered complete.

@@ -10,6 +10,7 @@ from collections import Counter
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
+from waitress import serve
 from collectors import run_all_collectors, CATEGORIES
 from history import init_db, store_snapshot, get_summary, get_fix_log, log_fix_attempt
 from remediations import REMEDIATIONS
@@ -121,4 +122,4 @@ if __name__ == "__main__":
     external_note = ", external calls: on" if app.config["EXTERNAL_CALLS"] else ", external calls: off"
     alert_note = f", alerting: every {alert}s" if alert else ", alerting: off"
     print(f"Dashboard running at http://127.0.0.1:{port} — local access only{refresh_note}{external_note}{alert_note}")
-    app.run(host="127.0.0.1", port=port, debug=False)
+    serve(app, host="127.0.0.1", port=port, threads=4)
