@@ -37,6 +37,15 @@ from .hygiene import (
 )
 from .external import check_macos_version
 
+CATEGORIES: list[tuple[str, list[str]]] = [
+    ("System Integrity", ["System Integrity Protection", "Gatekeeper", "FileVault", "Secure Boot"]),
+    ("Network", ["Application Firewall", "Stealth Mode", "Listening Services"]),
+    ("Persistence", ["User Launch Agents", "Global Launch Agents", "Launch Daemons", "Login Items"]),
+    ("Authentication", ["Failed Logins", "SSH Authorized Keys"]),
+    ("Sharing & Remote Access", ["Remote Login", "Screen Sharing / Remote Management", "AirDrop Receiver Mode"]),
+    ("Software Hygiene", ["Automatic Updates", "Root Certificate Trust", "Screen Lock"]),
+]
+
 # Always-on signals — run on every page load regardless of env var settings.
 # To add a new signal: import its check function and append it here.
 _COLLECTORS = [

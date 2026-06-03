@@ -100,13 +100,80 @@ body {
   background-color: var(--refresh-bg-hover);
 }
 
+/* ── Summary bar ───────────────────────────────────────────────────────── */
+.summary-bar {
+  display: flex;
+  gap: 1rem;
+  max-width: 960px;
+  margin: 0 auto 1.5rem;
+  flex-wrap: wrap;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem 1.25rem;
+  border-radius: var(--radius);
+  text-decoration: none;
+  background-color: var(--bg-card);
+  border: 1px solid var(--bg-card-border);
+  min-width: 5rem;
+  transition: border-color 0.15s ease;
+}
+
+.summary-item:hover {
+  border-color: var(--text-muted);
+}
+
+.summary-count {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.summary-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin-top: 0.15rem;
+}
+
+.summary-item--fail    .summary-count { color: var(--badge-fail-bg); }
+.summary-item--warn    .summary-count { color: var(--badge-warn-bg); }
+.summary-item--unknown .summary-count { color: var(--badge-unknown-bg); }
+.summary-item--pass    .summary-count { color: var(--badge-pass-bg); }
+.summary-item--fail    .summary-label { color: var(--badge-fail-bg); }
+.summary-item--warn    .summary-label { color: var(--badge-warn-bg); }
+.summary-item--unknown .summary-label { color: var(--badge-unknown-bg); }
+.summary-item--pass    .summary-label { color: var(--badge-pass-bg); }
+
+/* ── Dashboard main & category sections ───────────────────────────────── */
+.dashboard-main {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+}
+
+.category-heading {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--bg-card-border);
+  margin-bottom: 1rem;
+}
+
 /* ── Card grid ─────────────────────────────────────────────────────────── */
 .card-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
   gap: 1.5rem;
-  max-width: 960px;
-  margin: 0 auto;
 }
 
 /* ── Card ──────────────────────────────────────────────────────────────── */

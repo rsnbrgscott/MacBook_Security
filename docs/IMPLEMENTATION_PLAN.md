@@ -2154,7 +2154,7 @@ Files changed: `src/collectors/__init__.py`, `src/app.py`, `templates/dashboard.
 
 ---
 
-### Step 19.1 — Add `CATEGORIES` constant to `src/collectors/__init__.py`
+### ✅ Step 19.1 — Add `CATEGORIES` constant to `src/collectors/__init__.py`
 
 Add a module-level list that defines the display order and membership of each signal category. The names must exactly match the `name` key returned by each collector.
 
@@ -2175,7 +2175,7 @@ Signals not listed in `CATEGORIES` (currently only "macOS Version") are rendered
 
 ---
 
-### Step 19.2 — Register `status_sort` Jinja2 filter in `src/app.py`
+### ✅ Step 19.2 — Register `status_sort` Jinja2 filter in `src/app.py`
 
 After `app = Flask(...)`, add:
 
@@ -2190,7 +2190,7 @@ def _status_sort(signals_list):
 
 ---
 
-### Step 19.3 — Pass category data to the dashboard template
+### ✅ Step 19.3 — Pass category data to the dashboard template
 
 In `src/app.py`, update the `dashboard()` route's `render_template` call to pass category metadata:
 
@@ -2216,7 +2216,7 @@ def dashboard():
 
 ---
 
-### Step 19.4 — Restructure `templates/dashboard.html` with category sections
+### ✅ Step 19.4 — Restructure `templates/dashboard.html` with category sections
 
 Replace `<main class="card-grid">` with a `.dashboard-main` container that loops over categories, rendering a heading and an inner `.card-grid` for each. Sort cards within each category via the `status_sort` filter. Append uncategorized signals in an "External / Opt-in" section.
 
@@ -2258,7 +2258,7 @@ Replace `<main class="card-grid">` with a `.dashboard-main` container that loops
 
 ---
 
-### Step 19.5 — Add summary bar
+### ✅ Step 19.5 — Add summary bar
 
 Add a compact status count row between the header and the first category section. Each count is a clickable anchor that jumps to the first card of that status in document order (i.e., the first FAIL across all categories, which due to sorting will appear early).
 
@@ -2365,7 +2365,7 @@ In `static/style.css`, add:
 
 ---
 
-### Step 19.6 — CSS for category structure
+### ✅ Step 19.6 — CSS for category structure
 
 In `static/style.css`, add:
 
@@ -2399,16 +2399,16 @@ Remove (or leave harmlessly) the `max-width` and `margin` from `.card-grid` sinc
 
 ### Phase 19 Integration Validation
 
-- [ ] `CATEGORIES` is importable from `collectors` and lists all 19 always-on signal names across 6 categories
-- [ ] Dashboard renders exactly 6 category sections with correct headings
-- [ ] Cards within each category are sorted FAIL → WARN → UNKNOWN → PASS
-- [ ] No signal is missing; no signal appears more than once
-- [ ] With `EXTERNAL_CALLS=1`, a seventh "External / Opt-in" section appears with the macOS Version card
-- [ ] Summary bar shows correct counts for each status
-- [ ] Clicking a non-zero count in the summary bar scrolls to the first card of that status
-- [ ] All Phase 17 card-level styles (tinting, collapsible raw/description, fix button) work inside the new category structure
-- [ ] `app.py` changes are limited to: `CATEGORIES` import, `status_sort` filter registration, `status_counts` computation, and updated `render_template` call
-- [ ] No regressions in auto-refresh, fix flow, History nav link, or Refresh button
+- [x] `CATEGORIES` is importable from `collectors` and lists all 19 always-on signal names across 6 categories
+- [x] Dashboard renders exactly 6 category sections with correct headings
+- [x] Cards within each category are sorted FAIL → WARN → UNKNOWN → PASS
+- [x] No signal is missing; no signal appears more than once
+- [x] With `EXTERNAL_CALLS=1`, a seventh "External / Opt-in" section appears with the macOS Version card
+- [x] Summary bar shows correct counts for each status
+- [x] Clicking a non-zero count in the summary bar scrolls to the first card of that status
+- [x] All Phase 17 card-level styles (tinting, collapsible raw/description, fix button) work inside the new category structure
+- [x] `app.py` changes are limited to: `CATEGORIES` import, `status_sort` filter registration, `status_counts` computation, and updated `render_template` call
+- [x] No regressions in auto-refresh, fix flow, History nav link, or Refresh button
 
 ---
 

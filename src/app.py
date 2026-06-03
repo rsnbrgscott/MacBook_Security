@@ -6,10 +6,11 @@
 
 import os
 import sys
+from collections import Counter
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
-from collectors import run_all_collectors
+from collectors import run_all_collectors, CATEGORIES
 from history import init_db, store_snapshot, get_summary, get_fix_log, log_fix_attempt
 from remediations import REMEDIATIONS
 from remediations.executor import run_fix
@@ -37,6 +38,12 @@ def _get_int_env(name: str) -> int:
     return value
 
 
+@app.template_filter('status_sort')
+def _status_sort(signals_list):
+    order = {'FAIL': 0, 'WARN': 1, 'UNKNOWN': 2, 'PASS': 3}
+    return sorted(signals_list, key=lambda s: order.get(s.get('status', ''), 4))
+
+
 @app.after_request
 def add_security_headers(response):
     response.headers["X-Frame-Options"] = "DENY"
@@ -53,11 +60,16 @@ def dashboard():
     """Run all collectors, persist the snapshot, and render the main dashboard page."""
     signals = run_all_collectors(external=app.config["EXTERNAL_CALLS"])
     store_snapshot(signals)
+    cat_names = frozenset(n for _, names in CATEGORIES for n in names)
+    status_counts = Counter(s['status'] for s in signals)
     return render_template(
         "dashboard.html",
         signals=signals,
         refresh_interval=app.config["REFRESH_INTERVAL"],
         remediations=REMEDIATIONS,
+        categories=CATEGORIES,
+        categorized_names=cat_names,
+        status_counts=status_counts,
     )
 
 

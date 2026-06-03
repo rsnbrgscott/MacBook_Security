@@ -22,36 +22,118 @@
     </div>
   </header>
 
-  <main class="card-grid">
-    {% for signal in signals %}
-    <div class="card card--{{ signal.status | lower }}">
-      <div class="card-header">
-        <h2 class="signal-name">{{ signal.name }}</h2>
-        <span class="badge badge--{{ signal.status | lower }}">{{ signal.status }}</span>
-      </div>
-      {% if signal.status == 'PASS' %}
-      <details class="desc-details">
-        <summary class="desc-summary">What this checks</summary>
-        <p class="signal-description">{{ signal.description }}</p>
-      </details>
-      {% else %}
-      <p class="signal-description">{{ signal.description }}</p>
-      {% endif %}
-      <details class="raw-details"{% if signal.status != 'PASS' %} open{% endif %}>
-        <summary class="raw-summary">Raw output</summary>
-        <pre class="raw-output">{{ signal.raw }}</pre>
-      </details>
-      {% if signal.error %}
-      <p class="signal-error">Error: {{ signal.error }}</p>
-      {% endif %}
-      {% set fix = remediations.get(signal.name) %}
-      {% if fix and signal.status in fix.applies_to %}
-      <button class="fix-btn"
-              data-signal="{{ signal.name }}"
-              data-label="{{ fix.label }}">{{ fix.label }}</button>
-      {% endif %}
-    </div>
+  <div class="summary-bar">
+    {% for status in ['FAIL', 'WARN', 'UNKNOWN', 'PASS'] %}
+    {% set count = status_counts.get(status, 0) %}
+    <a class="summary-item summary-item--{{ status | lower }}"
+       href="#status-first-{{ status | lower }}">
+      <span class="summary-count">{{ count }}</span>
+      <span class="summary-label">{{ status }}</span>
+    </a>
     {% endfor %}
+  </div>
+
+  <main class="dashboard-main">
+    {% set ns = namespace(seen_fail=false, seen_warn=false, seen_unknown=false, seen_pass=false) %}
+    {% for category_name, category_signal_names in categories %}
+      {% set cat_signals = signals | selectattr('name', 'in', category_signal_names) | list %}
+      {% if cat_signals %}
+      <section class="signal-category">
+        <h2 class="category-heading">{{ category_name }}</h2>
+        <div class="card-grid">
+          {% for signal in cat_signals | status_sort %}
+          {% if signal.status == 'FAIL' and not ns.seen_fail %}
+            {% set ns.seen_fail = true %}{% set anchor = 'status-first-fail' %}
+          {% elif signal.status == 'WARN' and not ns.seen_warn %}
+            {% set ns.seen_warn = true %}{% set anchor = 'status-first-warn' %}
+          {% elif signal.status == 'UNKNOWN' and not ns.seen_unknown %}
+            {% set ns.seen_unknown = true %}{% set anchor = 'status-first-unknown' %}
+          {% elif signal.status == 'PASS' and not ns.seen_pass %}
+            {% set ns.seen_pass = true %}{% set anchor = 'status-first-pass' %}
+          {% else %}
+            {% set anchor = '' %}
+          {% endif %}
+          <div class="card card--{{ signal.status | lower }}"{% if anchor %} id="{{ anchor }}"{% endif %}>
+            <div class="card-header">
+              <h2 class="signal-name">{{ signal.name }}</h2>
+              <span class="badge badge--{{ signal.status | lower }}">{{ signal.status }}</span>
+            </div>
+            {% if signal.status == 'PASS' %}
+            <details class="desc-details">
+              <summary class="desc-summary">What this checks</summary>
+              <p class="signal-description">{{ signal.description }}</p>
+            </details>
+            {% else %}
+            <p class="signal-description">{{ signal.description }}</p>
+            {% endif %}
+            <details class="raw-details"{% if signal.status != 'PASS' %} open{% endif %}>
+              <summary class="raw-summary">Raw output</summary>
+              <pre class="raw-output">{{ signal.raw }}</pre>
+            </details>
+            {% if signal.error %}
+            <p class="signal-error">Error: {{ signal.error }}</p>
+            {% endif %}
+            {% set fix = remediations.get(signal.name) %}
+            {% if fix and signal.status in fix.applies_to %}
+            <button class="fix-btn"
+                    data-signal="{{ signal.name }}"
+                    data-label="{{ fix.label }}">{{ fix.label }}</button>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+    {% endfor %}
+
+    {% set uncategorized = signals | rejectattr('name', 'in', categorized_names) | list %}
+    {% if uncategorized %}
+    <section class="signal-category">
+      <h2 class="category-heading">External / Opt-in</h2>
+      <div class="card-grid">
+        {% for signal in uncategorized | status_sort %}
+        {% if signal.status == 'FAIL' and not ns.seen_fail %}
+          {% set ns.seen_fail = true %}{% set anchor = 'status-first-fail' %}
+        {% elif signal.status == 'WARN' and not ns.seen_warn %}
+          {% set ns.seen_warn = true %}{% set anchor = 'status-first-warn' %}
+        {% elif signal.status == 'UNKNOWN' and not ns.seen_unknown %}
+          {% set ns.seen_unknown = true %}{% set anchor = 'status-first-unknown' %}
+        {% elif signal.status == 'PASS' and not ns.seen_pass %}
+          {% set ns.seen_pass = true %}{% set anchor = 'status-first-pass' %}
+        {% else %}
+          {% set anchor = '' %}
+        {% endif %}
+        <div class="card card--{{ signal.status | lower }}"{% if anchor %} id="{{ anchor }}"{% endif %}>
+          <div class="card-header">
+            <h2 class="signal-name">{{ signal.name }}</h2>
+            <span class="badge badge--{{ signal.status | lower }}">{{ signal.status }}</span>
+          </div>
+          {% if signal.status == 'PASS' %}
+          <details class="desc-details">
+            <summary class="desc-summary">What this checks</summary>
+            <p class="signal-description">{{ signal.description }}</p>
+          </details>
+          {% else %}
+          <p class="signal-description">{{ signal.description }}</p>
+          {% endif %}
+          <details class="raw-details"{% if signal.status != 'PASS' %} open{% endif %}>
+            <summary class="raw-summary">Raw output</summary>
+            <pre class="raw-output">{{ signal.raw }}</pre>
+          </details>
+          {% if signal.error %}
+          <p class="signal-error">Error: {{ signal.error }}</p>
+          {% endif %}
+          {% set fix = remediations.get(signal.name) %}
+          {% if fix and signal.status in fix.applies_to %}
+          <button class="fix-btn"
+                  data-signal="{{ signal.name }}"
+                  data-label="{{ fix.label }}">{{ fix.label }}</button>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
   </main>
 
   <script>
