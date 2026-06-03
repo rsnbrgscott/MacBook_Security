@@ -2867,21 +2867,21 @@ The existing `Content-Security-Policy` header (`script-src 'self' 'unsafe-inline
 
 ### Phase 22 Integration Validation
 
-- [ ] `src/collectors/utils.py` exists and exports `run_cmd`, `run_cmd_rc`, `make_result`
-- [ ] No collector file defines its own `_run()` function
-- [ ] `python src/collectors/system_integrity.py` smoke test prints correct output
-- [ ] `python src/collectors/network.py` smoke test prints correct output
-- [ ] `python src/collectors/persistence.py` smoke test prints correct output
-- [ ] `python src/collectors/auth.py` smoke test prints correct output
-- [ ] `python src/collectors/sharing.py` smoke test prints correct output
-- [ ] `python src/collectors/hygiene.py` smoke test prints correct output
-- [ ] Dashboard loads with all 16 signal cards and correct statuses
-- [ ] All 5 Fix buttons work end-to-end (confirm → apply → reload)
-- [ ] Summary bar anchor links scroll to the correct first card of each status
-- [ ] Dashboard header counter reads "Just now" → "Last checked: Xs ago" → minutes
-- [ ] History header counter reads "Just now" → "Loaded: Xs ago" → minutes
-- [ ] `static/js/utils.js` is served at `/static/js/utils.js` (HTTP 200)
-- [ ] No regressions on the history page filter, tooltips, or fix log table
+- [x] `src/collectors/utils.py` exists and exports `run_cmd`, `run_cmd_rc`, `make_result`
+- [x] No collector file defines its own `_run()` function
+- [x] `python src/collectors/system_integrity.py` smoke test prints correct output
+- [x] `python src/collectors/network.py` smoke test prints correct output
+- [x] `python src/collectors/persistence.py` smoke test prints correct output
+- [x] `python src/collectors/auth.py` smoke test prints correct output
+- [x] `python src/collectors/sharing.py` smoke test prints correct output
+- [x] `python src/collectors/hygiene.py` smoke test prints correct output
+- [x] Dashboard loads with all signal cards and correct statuses
+- [x] All Fix buttons work end-to-end (confirm → apply → reload)
+- [x] Summary bar anchor links scroll to the correct first card of each status
+- [x] Dashboard header counter reads "Just now" → "Last checked: Xs ago" → minutes
+- [x] History header counter reads "Just now" → "Loaded: Xs ago" → minutes
+- [x] `static/js/utils.js` is served at `/static/js/utils.js` (HTTP 200)
+- [x] No regressions on the history page filter, tooltips, or fix log table
 
 ---
 

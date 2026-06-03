@@ -4,29 +4,12 @@ All checks are read-only filesystem or AppleScript queries — no elevated privi
 WARN is the expected result on most machines; raw output lets the user decide what's unusual.
 """
 
-import subprocess
 from pathlib import Path
 
-
-def _run(cmd: list[str], timeout: int = 10) -> tuple[str, str | None]:
-    """Run cmd, return (output, error). Never raises."""
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        output = result.stdout.strip() or result.stderr.strip()
-        if not output and result.returncode != 0:
-            return "", f"Command exited {result.returncode}: {' '.join(cmd)}"
-        return output, None
-    except subprocess.TimeoutExpired:
-        return "", f"Timed out after {timeout}s: {' '.join(cmd)}"
-    except FileNotFoundError:
-        return "", f"Command not found: {cmd[0]}"
-    except Exception as e:
-        return "", str(e)
+try:
+    from .utils import run_cmd, make_result
+except ImportError:
+    from utils import run_cmd, make_result  # noqa: F401 — direct script execution
 
 
 def _read_plists(path: Path, filter_apple: bool = False) -> tuple[list[str], str | None]:
@@ -53,13 +36,10 @@ def check_user_launch_agents() -> dict:
     )
     entries, error = _read_plists(Path.home() / "Library" / "LaunchAgents")
     if error:
-        return {"name": name, "description": desc, "status": "UNKNOWN", "raw": "", "error": error}
+        return make_result(name, desc, "UNKNOWN", "", error)
     if entries:
-        return {
-            "name": name, "description": desc, "status": "WARN",
-            "raw": "\n".join(entries), "error": None,
-        }
-    return {"name": name, "description": desc, "status": "PASS", "raw": "No entries found.", "error": None}
+        return make_result(name, desc, "WARN", "\n".join(entries))
+    return make_result(name, desc, "PASS", "No entries found.")
 
 
 def check_global_launch_agents() -> dict:
@@ -71,16 +51,10 @@ def check_global_launch_agents() -> dict:
     )
     entries, error = _read_plists(Path("/Library/LaunchAgents"), filter_apple=True)
     if error:
-        return {"name": name, "description": desc, "status": "UNKNOWN", "raw": "", "error": error}
+        return make_result(name, desc, "UNKNOWN", "", error)
     if entries:
-        return {
-            "name": name, "description": desc, "status": "WARN",
-            "raw": "\n".join(entries), "error": None,
-        }
-    return {
-        "name": name, "description": desc, "status": "PASS",
-        "raw": "Apple system entries only.", "error": None,
-    }
+        return make_result(name, desc, "WARN", "\n".join(entries))
+    return make_result(name, desc, "PASS", "Apple system entries only.")
 
 
 def check_launch_daemons() -> dict:
@@ -92,16 +66,10 @@ def check_launch_daemons() -> dict:
     )
     entries, error = _read_plists(Path("/Library/LaunchDaemons"), filter_apple=True)
     if error:
-        return {"name": name, "description": desc, "status": "UNKNOWN", "raw": "", "error": error}
+        return make_result(name, desc, "UNKNOWN", "", error)
     if entries:
-        return {
-            "name": name, "description": desc, "status": "WARN",
-            "raw": "\n".join(entries), "error": None,
-        }
-    return {
-        "name": name, "description": desc, "status": "PASS",
-        "raw": "Apple system entries only.", "error": None,
-    }
+        return make_result(name, desc, "WARN", "\n".join(entries))
+    return make_result(name, desc, "PASS", "Apple system entries only.")
 
 
 def check_login_items() -> dict:
@@ -111,22 +79,16 @@ def check_login_items() -> dict:
         "Applications and helpers that launch at login. "
         "WARN means items are registered — review them."
     )
-    raw, error = _run(
+    raw, error = run_cmd(
         ["osascript", "-e", "tell application \"System Events\" to get the name of every login item"]
     )
     if error:
-        return {"name": name, "description": desc, "status": "UNKNOWN", "raw": raw, "error": error}
+        return make_result(name, desc, "UNKNOWN", raw, error)
     # AppleScript returns a comma-separated string; split and strip whitespace.
     items = [item.strip() for item in raw.split(",") if item.strip()] if raw else []
     if items:
-        return {
-            "name": name, "description": desc, "status": "WARN",
-            "raw": "\n".join(items), "error": None,
-        }
-    return {
-        "name": name, "description": desc, "status": "PASS",
-        "raw": "No login items registered.", "error": None,
-    }
+        return make_result(name, desc, "WARN", "\n".join(items))
+    return make_result(name, desc, "PASS", "No login items registered.")
 
 
 if __name__ == "__main__":

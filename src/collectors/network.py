@@ -3,56 +3,38 @@
 All three use socketfilterfw or lsof — no elevated privileges required.
 """
 
-import subprocess
+try:
+    from .utils import run_cmd, make_result
+except ImportError:
+    from utils import run_cmd, make_result  # noqa: F401 — direct script execution
 
 # Absolute path to the macOS Application Firewall control binary.
 _SOCKETFILTERFW = "/usr/libexec/ApplicationFirewall/socketfilterfw"
-
-
-def _run(cmd: list[str], timeout: int = 10) -> tuple[str, str | None]:
-    """Run cmd, return (output, error). Never raises."""
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        output = result.stdout.strip() or result.stderr.strip()
-        if not output and result.returncode != 0:
-            return "", f"Command exited {result.returncode}: {' '.join(cmd)}"
-        return output, None
-    except subprocess.TimeoutExpired:
-        return "", f"Timed out after {timeout}s: {' '.join(cmd)}"
-    except FileNotFoundError:
-        return "", f"Command not found: {cmd[0]}"
-    except Exception as e:
-        return "", str(e)
 
 
 def check_firewall() -> dict:
     """Check whether the macOS Application Firewall is enabled via socketfilterfw."""
     name = "Application Firewall"
     desc = "Blocks unsolicited inbound connections to applications on this machine."
-    raw, error = _run([_SOCKETFILTERFW, "--getglobalstate"])
+    raw, error = run_cmd([_SOCKETFILTERFW, "--getglobalstate"])
     if error:
-        return {"name": name, "description": desc, "status": "UNKNOWN", "raw": raw, "error": error}
+        return make_result(name, desc, "UNKNOWN", raw, error)
     if "enabled" in raw:
         status = "PASS"
     elif "disabled" in raw:
         status = "FAIL"
     else:
         status, error = "UNKNOWN", f"Unrecognized output: {raw!r}"
-    return {"name": name, "description": desc, "status": status, "raw": raw, "error": error}
+    return make_result(name, desc, status, raw, error)
 
 
 def check_stealth_mode() -> dict:
     """Check Stealth Mode state — both 'is on' and 'enabled' are valid active-state strings."""
     name = "Stealth Mode"
     desc = "Prevents the machine from responding to unsolicited network probes such as ICMP ping."
-    raw, error = _run([_SOCKETFILTERFW, "--getstealthmode"])
+    raw, error = run_cmd([_SOCKETFILTERFW, "--getstealthmode"])
     if error:
-        return {"name": name, "description": desc, "status": "UNKNOWN", "raw": raw, "error": error}
+        return make_result(name, desc, "UNKNOWN", raw, error)
     # macOS output varies by version: some say "enabled", others say "Firewall stealth mode is on".
     if "enabled" in raw or "is on" in raw:
         status = "PASS"
@@ -60,7 +42,7 @@ def check_stealth_mode() -> dict:
         status = "WARN"
     else:
         status, error = "UNKNOWN", f"Unrecognized output: {raw!r}"
-    return {"name": name, "description": desc, "status": status, "raw": raw, "error": error}
+    return make_result(name, desc, status, raw, error)
 
 
 def check_listening_ports() -> dict:
@@ -70,9 +52,9 @@ def check_listening_ports() -> dict:
         "TCP services accepting inbound connections. "
         "External listeners are reachable from the local network."
     )
-    raw, error = _run(["lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"], timeout=15)
+    raw, error = run_cmd(["lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"], timeout=15)
     if error:
-        return {"name": name, "description": desc, "status": "UNKNOWN", "raw": raw, "error": error}
+        return make_result(name, desc, "UNKNOWN", raw, error)
 
     lines = raw.splitlines()
     data_lines = [ln for ln in lines[1:] if ln.strip()]  # skip header row
@@ -86,7 +68,7 @@ def check_listening_ports() -> dict:
     ]
 
     status = "WARN" if external else "PASS"
-    return {"name": name, "description": desc, "status": status, "raw": raw, "error": None}
+    return make_result(name, desc, status, raw)
 
 
 if __name__ == "__main__":

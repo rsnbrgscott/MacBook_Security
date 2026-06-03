@@ -7,26 +7,10 @@ macOS 26 label note: the SSH service label changed from com.apple.sshd to
 com.openssh.sshd. This module targets the label present on this machine.
 """
 
-import subprocess
-
-
-def _run(cmd: list[str], timeout: int = 10) -> tuple[str, int, str | None]:
-    """Run cmd, return (output, returncode, error). Never raises."""
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        output = result.stdout.strip() or result.stderr.strip()
-        return output, result.returncode, None
-    except subprocess.TimeoutExpired:
-        return "", -1, f"Timed out after {timeout}s: {' '.join(cmd)}"
-    except FileNotFoundError:
-        return "", -1, f"Command not found: {cmd[0]}"
-    except Exception as e:
-        return "", -1, str(e)
+try:
+    from .utils import run_cmd_rc, make_result
+except ImportError:
+    from utils import run_cmd_rc, make_result  # noqa: F401 — direct script execution
 
 
 def _check_launchd_service(label: str) -> tuple[bool | None, str, str | None]:
@@ -36,7 +20,7 @@ def _check_launchd_service(label: str) -> tuple[bool | None, str, str | None]:
     enabled=False → exit 113, "Could not find service"
     enabled=None  → unexpected result, caller should return UNKNOWN
     """
-    raw, returncode, error = _run(["launchctl", "print", f"system/{label}"])
+    raw, returncode, error = run_cmd_rc(["launchctl", "print", f"system/{label}"])
     if error:
         return None, raw, error
     if returncode == 0:
@@ -59,10 +43,10 @@ def check_remote_login() -> dict:
     )
     enabled, raw, error = _check_launchd_service("com.openssh.sshd")
     if enabled is None:
-        return {"name": name, "description": desc, "status": "UNKNOWN", "raw": raw, "error": error}
+        return make_result(name, desc, "UNKNOWN", raw, error)
     status = "FAIL" if enabled else "PASS"
     raw_display = "SSH server loaded (Remote Login enabled)." if enabled else "SSH server not loaded (Remote Login disabled)."
-    return {"name": name, "description": desc, "status": status, "raw": raw_display, "error": None}
+    return make_result(name, desc, status, raw_display)
 
 
 def check_screen_sharing() -> dict:
@@ -79,10 +63,10 @@ def check_screen_sharing() -> dict:
     )
     enabled, raw, error = _check_launchd_service("com.apple.screensharing")
     if enabled is None:
-        return {"name": name, "description": desc, "status": "UNKNOWN", "raw": raw, "error": error}
+        return make_result(name, desc, "UNKNOWN", raw, error)
     status = "FAIL" if enabled else "PASS"
     raw_display = "Screen sharing service loaded (Screen Sharing enabled)." if enabled else "Screen sharing service not loaded (Screen Sharing disabled)."
-    return {"name": name, "description": desc, "status": status, "raw": raw_display, "error": None}
+    return make_result(name, desc, status, raw_display)
 
 
 def check_airdrop() -> dict:
@@ -96,21 +80,17 @@ def check_airdrop() -> dict:
         "AirDrop discoverability controls who can send files to this machine wirelessly. "
         "'Everyone' exposes it to any nearby device."
     )
-    raw, returncode, error = _run(["defaults", "read", "com.apple.sharingd", "DiscoverableMode"])
+    raw, returncode, error = run_cmd_rc(["defaults", "read", "com.apple.sharingd", "DiscoverableMode"])
     if error or returncode != 0:
-        err = error or f"defaults exited {returncode}: {raw!r}"
-        return {"name": name, "description": desc, "status": "UNKNOWN", "raw": raw, "error": err}
+        return make_result(name, desc, "UNKNOWN", raw, error or f"defaults exited {returncode}: {raw!r}")
 
     if raw == "Everyone":
         status = "WARN"
     elif raw in ("Off", "Contacts Only"):
         status = "PASS"
     else:
-        return {
-            "name": name, "description": desc, "status": "UNKNOWN", "raw": raw,
-            "error": f"Unrecognized DiscoverableMode value: {raw!r}",
-        }
-    return {"name": name, "description": desc, "status": status, "raw": raw, "error": None}
+        return make_result(name, desc, "UNKNOWN", raw, f"Unrecognized DiscoverableMode value: {raw!r}")
+    return make_result(name, desc, status, raw)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,35 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2315803d'><path d='M12 2L4 6v6c0 5.25 3.5 10.15 8 11.35C16.5 22.15 20 17.25 20 12V6l-8-4z'/></svg>">
 </head>
 <body>
+{% macro render_card(signal, anchor, remediations) %}
+<div class="card card--{{ signal.status | lower }}"{% if anchor %} id="{{ anchor }}"{% endif %}>
+  <div class="card-header">
+    <h2 class="signal-name">{{ signal.name }}</h2>
+    <span class="badge badge--{{ signal.status | lower }}">{{ signal.status }}</span>
+  </div>
+  {% if signal.status == 'PASS' %}
+  <details class="desc-details">
+    <summary class="desc-summary">What this checks</summary>
+    <p class="signal-description">{{ signal.description }}</p>
+  </details>
+  {% else %}
+  <p class="signal-description">{{ signal.description }}</p>
+  {% endif %}
+  <details class="raw-details"{% if signal.status != 'PASS' %} open{% endif %}>
+    <summary class="raw-summary">Raw output</summary>
+    <pre class="raw-output">{{ signal.raw }}</pre>
+  </details>
+  {% if signal.error %}
+  <p class="signal-error">Error: {{ signal.error }}</p>
+  {% endif %}
+  {% set fix = remediations.get(signal.name) %}
+  {% if fix and signal.status in fix.applies_to %}
+  <button class="fix-btn"
+          data-signal="{{ signal.name }}"
+          data-label="{{ fix.label }}">{{ fix.label }}</button>
+  {% endif %}
+</div>
+{% endmacro %}
   <header class="page-header">
     <h1 class="page-title">MacBook Security Dashboard</h1>
     <div class="header-controls">
@@ -53,33 +82,7 @@
           {% else %}
             {% set anchor = '' %}
           {% endif %}
-          <div class="card card--{{ signal.status | lower }}"{% if anchor %} id="{{ anchor }}"{% endif %}>
-            <div class="card-header">
-              <h2 class="signal-name">{{ signal.name }}</h2>
-              <span class="badge badge--{{ signal.status | lower }}">{{ signal.status }}</span>
-            </div>
-            {% if signal.status == 'PASS' %}
-            <details class="desc-details">
-              <summary class="desc-summary">What this checks</summary>
-              <p class="signal-description">{{ signal.description }}</p>
-            </details>
-            {% else %}
-            <p class="signal-description">{{ signal.description }}</p>
-            {% endif %}
-            <details class="raw-details"{% if signal.status != 'PASS' %} open{% endif %}>
-              <summary class="raw-summary">Raw output</summary>
-              <pre class="raw-output">{{ signal.raw }}</pre>
-            </details>
-            {% if signal.error %}
-            <p class="signal-error">Error: {{ signal.error }}</p>
-            {% endif %}
-            {% set fix = remediations.get(signal.name) %}
-            {% if fix and signal.status in fix.applies_to %}
-            <button class="fix-btn"
-                    data-signal="{{ signal.name }}"
-                    data-label="{{ fix.label }}">{{ fix.label }}</button>
-            {% endif %}
-          </div>
+          {{ render_card(signal, anchor, remediations) }}
           {% endfor %}
         </div>
       </section>
@@ -103,33 +106,7 @@
         {% else %}
           {% set anchor = '' %}
         {% endif %}
-        <div class="card card--{{ signal.status | lower }}"{% if anchor %} id="{{ anchor }}"{% endif %}>
-          <div class="card-header">
-            <h2 class="signal-name">{{ signal.name }}</h2>
-            <span class="badge badge--{{ signal.status | lower }}">{{ signal.status }}</span>
-          </div>
-          {% if signal.status == 'PASS' %}
-          <details class="desc-details">
-            <summary class="desc-summary">What this checks</summary>
-            <p class="signal-description">{{ signal.description }}</p>
-          </details>
-          {% else %}
-          <p class="signal-description">{{ signal.description }}</p>
-          {% endif %}
-          <details class="raw-details"{% if signal.status != 'PASS' %} open{% endif %}>
-            <summary class="raw-summary">Raw output</summary>
-            <pre class="raw-output">{{ signal.raw }}</pre>
-          </details>
-          {% if signal.error %}
-          <p class="signal-error">Error: {{ signal.error }}</p>
-          {% endif %}
-          {% set fix = remediations.get(signal.name) %}
-          {% if fix and signal.status in fix.applies_to %}
-          <button class="fix-btn"
-                  data-signal="{{ signal.name }}"
-                  data-label="{{ fix.label }}">{{ fix.label }}</button>
-          {% endif %}
-        </div>
+        {{ render_card(signal, anchor, remediations) }}
         {% endfor %}
       </div>
     </section>
@@ -197,25 +174,8 @@
     })();
   </script>
 
-  <script>
-    (function () {
-      var el = document.getElementById('last-checked-label');
-      var loaded = Date.now();
-      function update() {
-        var secs = Math.round((Date.now() - loaded) / 1000);
-        if (secs < 10) {
-          el.textContent = 'Just now';
-        } else if (secs < 60) {
-          el.textContent = 'Last checked: ' + secs + 's ago';
-        } else {
-          var mins = Math.floor(secs / 60);
-          el.textContent = 'Last checked: ' + mins + ' min' + (mins !== 1 ? 's' : '') + ' ago';
-        }
-      }
-      update();
-      setInterval(update, 5000);
-    })();
-  </script>
+  <script src="/static/js/utils.js"></script>
+  <script>startElapsedCounter('last-checked-label', 'Last checked');</script>
 
   {% if refresh_interval > 0 %}
   <script>

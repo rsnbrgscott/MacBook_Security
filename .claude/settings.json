@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(.venv/bin/python *)",
+      "Bash(.venv/bin/pip *)",
+      "Bash(python3 *)",
+      "Bash(curl *)",
+      "Bash(lsof *)",
+      "Bash(pkill -f \"src/app.py\")",
+      "Bash(chmod +x *)",
+      "Bash(screencapture *)",
+      "Bash(npx playwright *)",
+      "Bash(csrutil status)",
+      "Bash(spctl *)",
+      "Bash(fdesetup status)",
+      "Bash(bputil *)",
+      "Bash(system_profiler *)",
+      "Bash(log show *)",
+      "Bash(defaults read *)",
+      "Bash(defaults -currentHost read *)",
+      "Bash(launchctl list *)",
+      "Bash(launchctl print *)",
+      "Bash(launchctl print-disabled *)",
+      "Bash(sfltool dumpbtm *)",
+      "Bash(security find-certificate *)",
+      "Bash(security dump-trust-settings *)",
+      "Bash(softwareupdate --schedule)",
+      "Bash(pmset -g)",
+      "Bash(sw_vers)",
+      "Bash(sw_vers *)",
+      "Bash(systemsetup *)",
+      "Bash(plutil *)",
+      "Bash(openssl x509 *)",
+      "Bash(osascript *)",
+      "Read(//Library/**)",
+      "Read(//private/var/log/**)",
+      "Read(//System/Library/**)",
+      "Read(//tmp/**)"
+    ]
+  }
+}

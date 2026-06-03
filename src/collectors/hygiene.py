@@ -10,27 +10,10 @@ Absent-key semantics (verified on macOS 26):
     when the system trust store is empty — treated as PASS.
 """
 
-import subprocess
-
-
-def _run(cmd: list[str], timeout: int = 10) -> tuple[str, int, str | None]:
-    """Run cmd, return (stdout_or_stderr, returncode, error). Never raises."""
-    try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        )
-        output = proc.stdout.strip() or proc.stderr.strip()
-        return output, proc.returncode, None
-    except subprocess.TimeoutExpired:
-        return "", -1, f"Timed out after {timeout}s: {' '.join(cmd)}"
-    except FileNotFoundError:
-        return "", -1, f"Command not found: {cmd[0]}"
-    except OSError as e:
-        return "", -1, str(e)
+try:
+    from .utils import run_cmd_rc, make_result
+except ImportError:
+    from utils import run_cmd_rc, make_result  # noqa: F401 — direct script execution
 
 
 def check_auto_updates() -> dict:
@@ -51,80 +34,52 @@ def check_auto_updates() -> dict:
     )
     _pref = "/Library/Preferences/com.apple.SoftwareUpdate"
 
-    auto_raw, auto_rc, auto_err = _run(
+    auto_raw, auto_rc, auto_err = run_cmd_rc(
         ["defaults", "read", _pref, "AutomaticCheckEnabled"]
     )
     if auto_err:
-        return {
-            "name": name, "description": desc, "status": "UNKNOWN",
-            "raw": "", "error": auto_err,
-        }
+        return make_result(name, desc, "UNKNOWN", "", auto_err)
 
     if auto_rc == 1:
         # Key absent — macOS default is enabled; all update sub-settings also default on.
-        return {
-            "name": name, "description": desc, "status": "PASS",
-            "raw": "AutomaticCheckEnabled: absent (macOS default: on)",
-            "error": None,
-        }
+        return make_result(name, desc, "PASS", "AutomaticCheckEnabled: absent (macOS default: on)")
 
     if auto_raw == "0":
-        return {
-            "name": name, "description": desc, "status": "FAIL",
-            "raw": "AutomaticCheckEnabled: 0 (disabled)",
-            "error": None,
-        }
+        return make_result(name, desc, "FAIL", "AutomaticCheckEnabled: 0 (disabled)")
 
     if auto_raw != "1":
-        return {
-            "name": name, "description": desc, "status": "UNKNOWN",
-            "raw": auto_raw,
-            "error": f"Unexpected AutomaticCheckEnabled value: {auto_raw!r}",
-        }
+        return make_result(
+            name, desc, "UNKNOWN", auto_raw,
+            f"Unexpected AutomaticCheckEnabled value: {auto_raw!r}",
+        )
 
     # AutomaticCheckEnabled = 1; check whether critical/security updates auto-install.
-    crit_raw, crit_rc, crit_err = _run(
+    crit_raw, crit_rc, crit_err = run_cmd_rc(
         ["defaults", "read", _pref, "CriticalUpdateInstall"]
     )
     if crit_err:
-        return {
-            "name": name, "description": desc, "status": "UNKNOWN",
-            "raw": auto_raw, "error": crit_err,
-        }
+        return make_result(name, desc, "UNKNOWN", auto_raw, crit_err)
 
     if crit_rc == 1:
         # Key absent — macOS default is enabled.
-        return {
-            "name": name, "description": desc, "status": "PASS",
-            "raw": (
-                "AutomaticCheckEnabled: 1, "
-                "CriticalUpdateInstall: absent (macOS default: on)"
-            ),
-            "error": None,
-        }
+        return make_result(
+            name, desc, "PASS",
+            "AutomaticCheckEnabled: 1, CriticalUpdateInstall: absent (macOS default: on)",
+        )
 
     if crit_raw == "1":
-        return {
-            "name": name, "description": desc, "status": "PASS",
-            "raw": "AutomaticCheckEnabled: 1, CriticalUpdateInstall: 1",
-            "error": None,
-        }
+        return make_result(name, desc, "PASS", "AutomaticCheckEnabled: 1, CriticalUpdateInstall: 1")
 
     if crit_raw == "0":
-        return {
-            "name": name, "description": desc, "status": "WARN",
-            "raw": (
-                "AutomaticCheckEnabled: 1, "
-                "CriticalUpdateInstall: 0 (security updates not auto-installed)"
-            ),
-            "error": None,
-        }
+        return make_result(
+            name, desc, "WARN",
+            "AutomaticCheckEnabled: 1, CriticalUpdateInstall: 0 (security updates not auto-installed)",
+        )
 
-    return {
-        "name": name, "description": desc, "status": "UNKNOWN",
-        "raw": crit_raw,
-        "error": f"Unexpected CriticalUpdateInstall value: {crit_raw!r}",
-    }
+    return make_result(
+        name, desc, "UNKNOWN", crit_raw,
+        f"Unexpected CriticalUpdateInstall value: {crit_raw!r}",
+    )
 
 
 def check_root_certificates() -> dict:
@@ -144,24 +99,18 @@ def check_root_certificates() -> dict:
         "intercept HTTPS connections. This checks for non-Apple trust overrides in "
         "the system domain."
     )
-    raw, rc, err = _run(["security", "dump-trust-settings", "-d"])
+    raw, rc, err = run_cmd_rc(["security", "dump-trust-settings", "-d"])
     if err:
-        return {"name": name, "description": desc, "status": "UNKNOWN", "raw": raw, "error": err}
+        return make_result(name, desc, "UNKNOWN", raw, err)
 
     # Exits 1 with this message when the store is empty — PASS, not an error.
     if "No Trust Settings were found." in raw:
-        return {
-            "name": name, "description": desc, "status": "PASS",
-            "raw": "No Trust Settings were found.", "error": None,
-        }
+        return make_result(name, desc, "PASS", "No Trust Settings were found.")
 
     if rc != 0:
-        return {
-            "name": name, "description": desc, "status": "UNKNOWN",
-            "raw": raw, "error": f"security dump-trust-settings exited {rc}",
-        }
+        return make_result(name, desc, "UNKNOWN", raw, f"security dump-trust-settings exited {rc}")
 
-    return {"name": name, "description": desc, "status": "WARN", "raw": raw, "error": None}
+    return make_result(name, desc, "WARN", raw)
 
 
 def check_screen_lock() -> dict:
@@ -181,7 +130,7 @@ def check_screen_lock() -> dict:
         "unauthorised access when the machine is left unattended."
     )
 
-    pw_raw, pw_rc, pw_err = _run(
+    pw_raw, pw_rc, pw_err = run_cmd_rc(
         [
             "osascript", "-e",
             "tell application \"System Events\" to tell security preferences"
@@ -190,68 +139,45 @@ def check_screen_lock() -> dict:
         timeout=15,
     )
     if pw_err:
-        return {
-            "name": name, "description": desc, "status": "UNKNOWN",
-            "raw": pw_raw, "error": pw_err,
-        }
+        return make_result(name, desc, "UNKNOWN", pw_raw, pw_err)
     if pw_rc != 0:
-        return {
-            "name": name, "description": desc, "status": "UNKNOWN",
-            "raw": pw_raw, "error": f"osascript exited {pw_rc}: {pw_raw!r}",
-        }
+        return make_result(name, desc, "UNKNOWN", pw_raw, f"osascript exited {pw_rc}: {pw_raw!r}")
 
     if pw_raw.strip().lower() == "false":
-        return {
-            "name": name, "description": desc, "status": "FAIL",
-            "raw": "require password to wake: false",
-            "error": None,
-        }
+        return make_result(name, desc, "FAIL", "require password to wake: false")
 
     if pw_raw.strip().lower() != "true":
-        return {
-            "name": name, "description": desc, "status": "UNKNOWN",
-            "raw": pw_raw, "error": f"Unexpected osascript output: {pw_raw!r}",
-        }
+        return make_result(name, desc, "UNKNOWN", pw_raw, f"Unexpected osascript output: {pw_raw!r}")
 
     # Password is required; check grace-period delay.
-    delay_raw, delay_rc, delay_err = _run(
+    delay_raw, delay_rc, delay_err = run_cmd_rc(
         ["defaults", "-currentHost", "read", "com.apple.screensaver", "askForPasswordDelay"]
     )
     if delay_err:
-        return {
-            "name": name, "description": desc, "status": "UNKNOWN",
-            "raw": pw_raw, "error": delay_err,
-        }
+        return make_result(name, desc, "UNKNOWN", pw_raw, delay_err)
 
     if delay_rc == 1:
         # Key absent = 0s delay = immediate lock.
-        return {
-            "name": name, "description": desc, "status": "PASS",
-            "raw": "require password to wake: true, delay: absent (0s — immediate)",
-            "error": None,
-        }
+        return make_result(
+            name, desc, "PASS",
+            "require password to wake: true, delay: absent (0s — immediate)",
+        )
 
     try:
         delay_seconds = int(float(delay_raw.strip()))
     except ValueError:
-        return {
-            "name": name, "description": desc, "status": "UNKNOWN",
-            "raw": delay_raw,
-            "error": f"Unexpected askForPasswordDelay value: {delay_raw!r}",
-        }
+        return make_result(
+            name, desc, "UNKNOWN", delay_raw,
+            f"Unexpected askForPasswordDelay value: {delay_raw!r}",
+        )
 
     if delay_seconds == 0:
-        return {
-            "name": name, "description": desc, "status": "PASS",
-            "raw": "require password to wake: true, delay: 0s (immediate)",
-            "error": None,
-        }
+        return make_result(name, desc, "PASS", "require password to wake: true, delay: 0s (immediate)")
 
-    return {
-        "name": name, "description": desc, "status": "WARN",
-        "raw": f"require password to wake: true, delay: {delay_seconds}s",
-        "error": None,
-    }
+    return make_result(
+        name, desc, "WARN",
+        f"require password to wake: true, delay: {delay_seconds}s",
+    )
 
 
 if __name__ == "__main__":

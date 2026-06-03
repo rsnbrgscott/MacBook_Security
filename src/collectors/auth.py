@@ -3,8 +3,12 @@
 # Both signals return WARN when activity is detected, PASS when clean.
 # `log show` requires Full Disk Access; empty output without an error is treated as UNKNOWN.
 
-import subprocess
 from pathlib import Path
+
+try:
+    from .utils import run_cmd, make_result
+except ImportError:
+    from utils import run_cmd, make_result  # noqa: F401 — direct script execution
 
 # Case-sensitive predicates — CONTAINS[c] is intentional.
 # loginwindow uses all-caps "FAILED"; sshd uses title-case "Failed"/"Invalid".
@@ -16,27 +20,6 @@ _FAILED_LOGIN_PREDICATE = (
 )
 
 
-def _run(cmd: list[str], timeout: int = 30) -> tuple[str, str | None]:
-    """Run cmd, return (output, error). Never raises."""
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        output = result.stdout.strip() or result.stderr.strip()
-        if not output and result.returncode != 0:
-            return "", f"Command exited {result.returncode}: {' '.join(cmd)}"
-        return output, None
-    except subprocess.TimeoutExpired:
-        return "", f"Timed out after {timeout}s: {' '.join(cmd)}"
-    except FileNotFoundError:
-        return "", f"Command not found: {cmd[0]}"
-    except Exception as e:
-        return "", str(e)
-
-
 def check_failed_logins() -> dict:
     """Query the unified log for failed GUI and SSH login attempts in the past 24 hours."""
     name = "Failed Logins"
@@ -44,25 +27,25 @@ def check_failed_logins() -> dict:
         "Failed login attempts via the macOS login screen or SSH in the past 24h. "
         "WARN means failures were detected — review if unexpected."
     )
-    raw, error = _run(
+    raw, error = run_cmd(
         ["log", "show", "--predicate", _FAILED_LOGIN_PREDICATE, "--last", "24h", "--style", "compact"],
         timeout=30,
     )
     if error:
-        return {"name": name, "description": desc, "status": "UNKNOWN", "raw": raw, "error": error}
+        return make_result(name, desc, "UNKNOWN", raw, error)
     # Empty output with no error means Full Disk Access was denied — not a clean result.
     if not raw:
-        return {
-            "name": name, "description": desc, "status": "UNKNOWN", "raw": "",
-            "error": "log show returned no output — Full Disk Access may be required",
-        }
+        return make_result(
+            name, desc, "UNKNOWN", "",
+            "log show returned no output — Full Disk Access may be required",
+        )
     lines = [ln for ln in raw.splitlines() if ln.strip() and not ln.startswith("Timestamp")]
     if not lines:
-        return {"name": name, "description": desc, "status": "PASS", "raw": "No failed login events in past 24h.", "error": None}
+        return make_result(name, desc, "PASS", "No failed login events in past 24h.")
     # Cap displayed output at 20 lines to keep the dashboard readable.
     trimmed = "\n".join(lines[:20])
     suffix = f"\n... ({len(lines) - 20} more lines)" if len(lines) > 20 else ""
-    return {"name": name, "description": desc, "status": "WARN", "raw": trimmed + suffix, "error": None}
+    return make_result(name, desc, "WARN", trimmed + suffix)
 
 
 def check_ssh_keys() -> dict:
@@ -75,14 +58,14 @@ def check_ssh_keys() -> dict:
     path = Path.home() / ".ssh" / "authorized_keys"
     try:
         if not path.exists():
-            return {"name": name, "description": desc, "status": "PASS", "raw": "No authorized keys found.", "error": None}
+            return make_result(name, desc, "PASS", "No authorized keys found.")
         # Skip blank lines and comments — only count active key entries.
         lines = [ln for ln in path.read_text().splitlines() if ln.strip() and not ln.startswith("#")]
         if not lines:
-            return {"name": name, "description": desc, "status": "PASS", "raw": "No authorized keys found.", "error": None}
-        return {"name": name, "description": desc, "status": "WARN", "raw": "\n".join(lines), "error": None}
+            return make_result(name, desc, "PASS", "No authorized keys found.")
+        return make_result(name, desc, "WARN", "\n".join(lines))
     except OSError as e:
-        return {"name": name, "description": desc, "status": "UNKNOWN", "raw": "", "error": str(e)}
+        return make_result(name, desc, "UNKNOWN", "", str(e))
 
 
 if __name__ == "__main__":
