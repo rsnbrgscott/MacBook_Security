@@ -2602,7 +2602,7 @@ In `static/style.css`, add:
 
 ---
 
-### Step 21.1 — Add waitress to project dependencies
+### ✅ Step 21.1 — Add waitress to project dependencies
 
 Add `waitress` to `requirements.txt` and install it into the project virtualenv:
 
@@ -2626,7 +2626,7 @@ Verify the installed version:
 
 ---
 
-### Step 21.2 — Replace `app.run()` with `waitress.serve()`
+### ✅ Step 21.2 — Replace `app.run()` with `waitress.serve()`
 
 In `src/app.py`, replace the final `app.run(...)` call with a `waitress.serve()` call that binds to the same host and port.
 
