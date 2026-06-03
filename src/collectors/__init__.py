@@ -42,7 +42,7 @@ CATEGORIES: list[tuple[str, list[str]]] = [
     ("Network", ["Application Firewall", "Stealth Mode", "Listening Services"]),
     ("Persistence", ["User Launch Agents", "Global Launch Agents", "Launch Daemons", "Login Items"]),
     ("Authentication", ["Failed Logins", "SSH Authorized Keys"]),
-    ("Sharing & Remote Access", ["Remote Login", "Screen Sharing / Remote Management", "AirDrop Receiver Mode"]),
+    ("Sharing & Remote Access", ["Remote Login (SSH)", "Screen Sharing / Remote Management", "AirDrop Receiver Mode"]),
     ("Software Hygiene", ["Automatic Updates", "Root Certificate Trust", "Screen Lock"]),
 ]
 

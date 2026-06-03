@@ -2885,6 +2885,34 @@ The existing `Content-Security-Policy` header (`script-src 'self' 'unsafe-inline
 
 ---
 
+## Open Issues
+
+Issues identified after Phase 22. Each entry is classified as **Bug** (incorrect behavior), **Inconsistency** (code style/convention drift), or **Gap** (missing capability documented as a known limitation).
+
+### Bugs
+
+| # | File | Description |
+|---|------|-------------|
+| ~~B1~~ | ~~`src/collectors/__init__.py:45`~~ | ~~**CATEGORIES name mismatch: "Remote Login" vs "Remote Login (SSH)".**~~ **Resolved.** Changed `"Remote Login"` → `"Remote Login (SSH)"` in the `CATEGORIES` list. |
+
+### Inconsistencies
+
+| # | File | Description |
+|---|------|-------------|
+| I1 | `src/collectors/external.py` | **Not ported to `make_result` in Phase 22.** All six always-on collectors now use `make_result()` from `utils.py`; `external.py` was missed and still constructs result dicts manually (`{"name": ..., "description": ..., "status": ..., "raw": ..., "error": ...}`). Functionally equivalent but drifts from the shared factory. |
+| I2 | `src/collectors/external.py` | **Dead helper functions: `_latest_version` and `_max_major_in_feed`.** `check_macos_version()` contains its own inline HTTP fetch and never calls these two helpers. Both open a second (or third) HTTP connection if called — they are unreachable from any current call site. Safe to delete. |
+
+### Gaps
+
+| # | Description | Path to resolve |
+|---|-------------|----------------|
+| G1 | **`'unsafe-inline'` in CSP.** The fix-button JS and countdown-timer JS in `dashboard.html` are inline `<script>` blocks, requiring `script-src 'self' 'unsafe-inline'` in the Content-Security-Policy. Moving these blocks to `static/js/` files would allow dropping `'unsafe-inline'`. Mitigated by the localhost-only binding. | Extract fix-button JS to `static/js/fix.js` and countdown JS to `static/js/countdown.js`; update CSP to `script-src 'self'`. |
+| G2 | **No automated test suite.** There are no unit or integration tests. Signal correctness is verified by smoke-test scripts and manual inspection. | Add pytest tests: at minimum, unit tests for status-logic branches in each collector (mocking `run_cmd`/`run_cmd_rc`) and an integration smoke test that starts the Flask app and checks HTTP 200 on `/` and `/history`. |
+| G3 | **Screen Lock has no Fix button.** `check_screen_lock()` can return FAIL (password not required on wake) but no remediation is registered. Enabling screen lock via CLI requires writing to per-user screensaver preferences and calling `loginwindow` — not a single-flag toggle. | Document as a permanent limitation, or implement a remediation that writes `askForPassword` via `defaults -currentHost write com.apple.screensaver askForPassword -int 1` with admin privileges and verify end-to-end. |
+| G4 | **AirDrop has no Fix button.** `check_airdrop()` returns WARN when `DiscoverableMode == "Everyone"` but no remediation is registered. | Investigate whether `defaults write com.apple.sharingd DiscoverableMode -string "Contacts Only"` takes effect without a process restart, then add a remediation entry if it works cleanly. |
+
+---
+
 ## Appendix — Cross-Phase Design Principles
 
 These constraints apply to every phase and should be checked before any phase is considered complete.
