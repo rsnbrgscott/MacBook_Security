@@ -2885,6 +2885,195 @@ The existing `Content-Security-Policy` header (`script-src 'self' 'unsafe-inline
 
 ---
 
+## Phase 23 — Automated Test Suite
+
+Addresses Gap G2.
+
+**Goal:** Add a pytest test suite that verifies the status-logic correctness of every collector module and confirms that the Flask routes are reachable. No real system commands are executed — all subprocess and network calls are mocked at the import-site level.
+
+**Scope:**
+
+1. Test infrastructure — `pytest` added to `requirements.txt`, `pytest.ini` created, `tests/` directory scaffolded.
+2. Unit tests — one file per collector module, covering every status branch (PASS / FAIL / WARN / UNKNOWN as applicable). Subprocess collectors mock `run_cmd` / `run_cmd_rc`. Filesystem collectors use `pytest`'s `tmp_path` fixture or `unittest.mock.patch` on `pathlib.Path`. The external collector mocks `urllib.request.urlopen`.
+3. Integration smoke tests — Flask test client hits `/` and `/history`; `run_all_collectors` is mocked to return canned data so no collectors run.
+
+**Architecture decisions:**
+
+- Tests live in `tests/` at the repo root; there is no `tests/collectors/` subdirectory (project is small enough for a flat layout).
+- `pytest.ini` sets `pythonpath = src` (requires pytest ≥ 7) so collector and app imports work without a `PYTHONPATH` prefix.
+- `unittest.mock.patch` from stdlib is used for mocking — no additional `pytest-mock` dependency.
+- Each collector imports `run_cmd` / `run_cmd_rc` from `.utils`, so the correct patch target is the import-site binding (e.g., `collectors.network.run_cmd`), not `collectors.utils.run_cmd`.
+- The Flask integration fixture mocks `collectors.run_all_collectors` so route tests are fast and deterministic regardless of system state.
+
+---
+
+### Step 23.1 — Add pytest and create test infrastructure
+
+**Add pytest to `requirements.txt`:**
+
+```
+pytest==8.3.5
+```
+
+Install it:
+
+```zsh
+.venv/bin/pip install pytest==8.3.5
+```
+
+**Create `pytest.ini` at the repo root:**
+
+```ini
+[pytest]
+pythonpath = src
+testpaths = tests
+```
+
+**Create the `tests/` directory with empty `__init__.py` and a `conftest.py`:**
+
+```
+tests/
+├── __init__.py          # empty
+└── conftest.py          # shared fixtures
+```
+
+**`tests/conftest.py`** should provide two fixtures:
+
+1. `flask_client` — creates and configures the Flask test client with `EXTERNAL_CALLS=False`, `REFRESH_INTERVAL=0`, `ALERT_INTERVAL=0`, `PORT=8000`; initialises the DB in a temporary file; and patches `collectors.run_all_collectors` to return a minimal list of canned result dicts (one PASS, one FAIL, one WARN, one UNKNOWN) so routes return fast without running real collectors.
+2. `canned_results` — the list of dicts used by `flask_client`, also available independently for unit test assertions.
+
+**Canned result shape** (must satisfy the full result schema):
+
+```python
+[
+    {"name": "Test PASS",    "description": "d", "status": "PASS",    "raw": "ok",   "error": None},
+    {"name": "Test FAIL",    "description": "d", "status": "FAIL",    "raw": "bad",  "error": None},
+    {"name": "Test WARN",    "description": "d", "status": "WARN",    "raw": "note", "error": None},
+    {"name": "Test UNKNOWN", "description": "d", "status": "UNKNOWN", "raw": "",     "error": "err"},
+]
+```
+
+**Validation:** `pytest --collect-only` exits 0 and reports 0 errors (no tests yet, but the infrastructure is valid).
+
+---
+
+### Step 23.2 — Write unit tests for each collector module
+
+Create one test file per collector module. Each file covers every status branch of every `check_*` function in that module. The complete list is:
+
+| Test file | Functions under test |
+|-----------|---------------------|
+| `tests/test_system_integrity.py` | `check_sip`, `check_gatekeeper`, `check_filevault`, `check_secure_boot` |
+| `tests/test_network.py` | `check_firewall`, `check_stealth_mode`, `check_listening_ports` |
+| `tests/test_persistence.py` | `check_user_launch_agents`, `check_global_launch_agents`, `check_launch_daemons`, `check_login_items` |
+| `tests/test_auth.py` | `check_failed_logins`, `check_ssh_keys` |
+| `tests/test_sharing.py` | `check_remote_login`, `check_screen_sharing`, `check_airdrop` |
+| `tests/test_hygiene.py` | `check_auto_updates`, `check_root_certificates`, `check_screen_lock` |
+| `tests/test_external.py` | `check_macos_version` |
+
+**Rules for each unit test file:**
+
+- Import the function under test from the appropriate module (e.g., `from collectors.network import check_firewall`).
+- Use `unittest.mock.patch` as a decorator or context manager to mock `run_cmd` / `run_cmd_rc` **at the call-site namespace** (e.g., `@patch('collectors.network.run_cmd', return_value=(output, None))`).
+- For filesystem-based collectors (`check_user_launch_agents`, `check_global_launch_agents`, `check_launch_daemons`, `check_ssh_keys`, `check_root_certificates`): use `pytest`'s `tmp_path` fixture to create real temporary directories/files rather than mocking `pathlib.Path`.
+- For `check_macos_version`: mock `urllib.request.urlopen` to return a fake response with a known JSON payload, and mock `run_cmd` to return a fixed version string.
+- Every test function must:
+  1. Call the collector function with the mocked dependencies.
+  2. Assert `result["status"]` equals the expected value for that branch.
+  3. Assert `result["name"]` and `result["description"]` are non-empty strings.
+  4. Assert `result["error"] is None` for non-UNKNOWN outcomes; assert `result["error"]` is a non-empty string for UNKNOWN outcomes.
+
+**Status branches to cover per collector:**
+
+| Collector | Branches to cover |
+|-----------|------------------|
+| `check_sip` | PASS (enabled), FAIL (disabled), UNKNOWN (command error) |
+| `check_gatekeeper` | PASS, FAIL, UNKNOWN |
+| `check_filevault` | PASS, FAIL, UNKNOWN |
+| `check_secure_boot` | PASS, UNKNOWN |
+| `check_firewall` | PASS, FAIL, UNKNOWN |
+| `check_stealth_mode` | PASS, WARN, UNKNOWN |
+| `check_listening_ports` | PASS (all loopback), WARN (external listener), UNKNOWN |
+| `check_user_launch_agents` | PASS (empty dir), WARN (plist present) |
+| `check_global_launch_agents` | PASS (apple-only), WARN (third-party plist) |
+| `check_launch_daemons` | PASS, WARN |
+| `check_login_items` | PASS (no items), WARN (items present), UNKNOWN (command error) |
+| `check_failed_logins` | PASS (header, no events), WARN (events present), UNKNOWN (empty output) |
+| `check_ssh_keys` | PASS (file absent), PASS (file empty), WARN (key lines present), UNKNOWN (OSError) |
+| `check_remote_login` | PASS (disabled), FAIL (enabled), UNKNOWN |
+| `check_screen_sharing` | PASS, FAIL, UNKNOWN |
+| `check_airdrop` | PASS (Off), PASS (Contacts Only), WARN (Everyone), UNKNOWN |
+| `check_auto_updates` | PASS, WARN (check on, critical off), FAIL (check off), UNKNOWN |
+| `check_root_certificates` | PASS (empty output), WARN (cert present) |
+| `check_screen_lock` | PASS, WARN (delay > 0), FAIL (no password), UNKNOWN |
+| `check_macos_version` | PASS (current), WARN (minor update), FAIL (major behind), UNKNOWN (network error), UNKNOWN (sw_vers error) |
+
+**Validation:** `pytest tests/` runs all unit tests and passes. No test imports from `app.py` or starts a real server.
+
+---
+
+### Step 23.3 — Write integration smoke tests
+
+Create `tests/test_routes.py`. Use the `flask_client` fixture from `conftest.py`.
+
+**Tests to write:**
+
+```python
+def test_dashboard_returns_200(flask_client):
+    response = flask_client.get("/")
+    assert response.status_code == 200
+
+def test_dashboard_contains_signal_names(flask_client):
+    response = flask_client.get("/")
+    html = response.data.decode()
+    assert "Test PASS" in html
+    assert "Test FAIL" in html
+
+def test_history_returns_200(flask_client):
+    response = flask_client.get("/history")
+    assert response.status_code == 200
+
+def test_fix_unknown_signal_returns_404(flask_client):
+    response = flask_client.post("/fix/Nonexistent%20Signal")
+    assert response.status_code == 404
+    data = response.get_json()
+    assert data["success"] is False
+
+def test_fix_wrong_origin_returns_403(flask_client):
+    response = flask_client.post(
+        "/fix/Application%20Firewall",
+        headers={"Origin": "http://evil.example.com"},
+    )
+    assert response.status_code == 403
+
+def test_security_headers_present(flask_client):
+    response = flask_client.get("/")
+    assert response.headers.get("X-Frame-Options") == "DENY"
+    assert response.headers.get("X-Content-Type-Options") == "nosniff"
+    assert "script-src 'self'" in response.headers.get("Content-Security-Policy", "")
+    assert response.headers.get("Referrer-Policy") == "no-referrer"
+```
+
+**Validation:** `pytest tests/test_routes.py` passes with all six tests green. The test run does not trigger any real osascript dialogs or system commands.
+
+---
+
+### Phase 23 Integration Validation
+
+- [x] `pytest.ini` exists at the repo root with `pythonpath = src` and `testpaths = tests`
+- [x] `pytest --collect-only` reports items for all test files without import errors
+- [x] `pytest tests/` exits 0 — all tests pass
+- [x] No test calls a real system command (all `run_cmd`/`run_cmd_rc`/`urlopen`/filesystem accesses are mocked or use `tmp_path`)
+- [x] Unit tests cover every status branch listed in Step 23.2
+- [x] `test_dashboard_returns_200` passes without launching a real server
+- [x] `test_history_returns_200` passes
+- [x] `test_fix_wrong_origin_returns_403` passes (verifies CSRF guard)
+- [x] `test_security_headers_present` passes (verifies all four headers)
+- [x] `pytest` is listed in `requirements.txt` with a pinned version
+- [x] G2 row in the Open Issues table updated to resolved
+
+---
+
 ## Open Issues
 
 Issues identified after Phase 22. Each entry is classified as **Bug** (incorrect behavior), **Inconsistency** (code style/convention drift), or **Gap** (missing capability documented as a known limitation).
@@ -2907,7 +3096,7 @@ Issues identified after Phase 22. Each entry is classified as **Bug** (incorrect
 | # | Description | Path to resolve |
 |---|-------------|----------------|
 | ~~G1~~ | ~~**`'unsafe-inline'` in CSP.**~~ **Resolved.** Extracted all inline scripts to static files (`fix.js`, `countdown.js`, `filter.js`); `utils.js` now auto-inits the elapsed counter from a `data-prefix` attribute. CSP tightened to `script-src 'self'`. |
-| G2 | **No automated test suite.** There are no unit or integration tests. Signal correctness is verified by smoke-test scripts and manual inspection. | Add pytest tests: at minimum, unit tests for status-logic branches in each collector (mocking `run_cmd`/`run_cmd_rc`) and an integration smoke test that starts the Flask app and checks HTTP 200 on `/` and `/history`. |
+| ~~G2~~ | ~~**No automated test suite.**~~ **Resolved.** Added 77 pytest tests across 8 files: unit tests for every status branch in all 20 collectors (mocking `run_cmd`/`run_cmd_rc`/`urlopen`; `tmp_path` for filesystem collectors) and 6 integration smoke tests via the Flask test client. |
 | G3 | **Screen Lock has no Fix button.** `check_screen_lock()` can return FAIL (password not required on wake) but no remediation is registered. Enabling screen lock via CLI requires writing to per-user screensaver preferences and calling `loginwindow` — not a single-flag toggle. | Document as a permanent limitation, or implement a remediation that writes `askForPassword` via `defaults -currentHost write com.apple.screensaver askForPassword -int 1` with admin privileges and verify end-to-end. |
 | G4 | **AirDrop has no Fix button.** `check_airdrop()` returns WARN when `DiscoverableMode == "Everyone"` but no remediation is registered. | Investigate whether `defaults write com.apple.sharingd DiscoverableMode -string "Contacts Only"` takes effect without a process restart, then add a remediation entry if it works cleanly. |
 
