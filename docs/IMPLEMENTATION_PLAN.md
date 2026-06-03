@@ -2900,7 +2900,7 @@ Issues identified after Phase 22. Each entry is classified as **Bug** (incorrect
 | # | File | Description |
 |---|------|-------------|
 | ~~I1~~ | ~~`src/collectors/external.py`~~ | ~~**Not ported to `make_result` in Phase 22.**~~ **Resolved.** Added `make_result` import (with try/except fallback) and replaced all eight manual result dicts in `check_macos_version()` with `make_result(...)` calls. |
-| I2 | `src/collectors/external.py` | **Dead helper functions: `_latest_version` and `_max_major_in_feed`.** `check_macos_version()` contains its own inline HTTP fetch and never calls these two helpers. Both open a second (or third) HTTP connection if called — they are unreachable from any current call site. Safe to delete. |
+| ~~I2~~ | ~~`src/collectors/external.py`~~ | ~~**Dead helper functions: `_latest_version` and `_max_major_in_feed`.**~~ **Resolved.** Both functions deleted; `check_macos_version()` was already self-contained. |
 
 ### Gaps
 
