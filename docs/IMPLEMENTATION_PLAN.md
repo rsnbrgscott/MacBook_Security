@@ -2667,6 +2667,224 @@ The `threads=4` value matches the concurrency needs of a single-user local dashb
 
 ---
 
+## Phase 22 — DRY Refactor
+
+**Goal:** Eliminate the four concrete duplication patterns found across the collector modules, the dashboard template, and the shared JavaScript. No behavior changes — pure structural cleanup that reduces maintenance surface and the risk of the copies drifting out of sync.
+
+**Findings summary:**
+
+| # | What | Where | Copies |
+|---|------|-------|--------|
+| A | `_run()` helper (basic variant) | `system_integrity.py`, `network.py`, `persistence.py`, `auth.py` | 4 |
+| B | `_run()` helper (returncode variant) | `sharing.py`, `hygiene.py` | 2 |
+| C | Signal result dict literal | All 7 collector files | 50+ |
+| D | Card rendering block in `dashboard.html` | Lines 44–83 and 94–133 | 2 (40-line block each) |
+| E | Elapsed-time JS counter | `dashboard.html` and `history.html` | 2 |
+
+---
+
+### Step 22.1 — Extract `_run()` helpers to `src/collectors/utils.py`
+
+Create `src/collectors/utils.py` with both variants of `_run()` that are currently copy-pasted across all six collector files.
+
+```python
+# src/collectors/utils.py
+
+import subprocess
+
+
+def run_cmd(cmd: list[str], timeout: int = 10) -> tuple[str, str | None]:
+    """Run cmd, return (output, error). Never raises."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        output = result.stdout.strip() or result.stderr.strip()
+        if not output and result.returncode != 0:
+            return "", f"Command exited {result.returncode}: {' '.join(cmd)}"
+        return output, None
+    except subprocess.TimeoutExpired:
+        return "", f"Timed out after {timeout}s: {' '.join(cmd)}"
+    except FileNotFoundError:
+        return "", f"Command not found: {cmd[0]}"
+    except Exception as e:
+        return "", str(e)
+
+
+def run_cmd_rc(cmd: list[str], timeout: int = 10) -> tuple[str, int, str | None]:
+    """Run cmd, return (output, returncode, error). Never raises."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        output = result.stdout.strip() or result.stderr.strip()
+        return output, result.returncode, None
+    except subprocess.TimeoutExpired:
+        return "", -1, f"Timed out after {timeout}s: {' '.join(cmd)}"
+    except FileNotFoundError:
+        return "", -1, f"Command not found: {cmd[0]}"
+    except Exception as e:
+        return "", -1, str(e)
+```
+
+Names use `run_cmd` / `run_cmd_rc` (public names, no leading underscore) since they are imported across module boundaries.
+
+In each of the six collector files:
+- Remove the local `_run()` definition
+- Add `from .utils import run_cmd` (or `run_cmd_rc` for sharing/hygiene)
+- Rename all call sites from `_run(...)` to `run_cmd(...)` / `run_cmd_rc(...)`
+
+**auth.py note:** `check_failed_logins` calls `_run()` with `timeout=30` (slow `log show` command). After the refactor the call becomes `run_cmd(..., timeout=30)`. The default in `utils.py` stays 10.
+
+**Validation:** Start the app and load the dashboard. All 16 signal cards render with the same statuses as before. No `AttributeError` or import errors in the server log.
+
+---
+
+### Step 22.2 — Add `_result()` factory to `src/collectors/utils.py`
+
+Add a result-builder function to `src/collectors/utils.py`:
+
+```python
+def make_result(
+    name: str,
+    description: str,
+    status: str,
+    raw: str,
+    error: str | None = None,
+) -> dict:
+    """Return a standard signal result dict."""
+    return {"name": name, "description": description, "status": status, "raw": raw, "error": error}
+```
+
+In every collector file, replace each `return {"name": name, "description": desc, "status": ..., "raw": ..., "error": ...}` literal with `return make_result(name, desc, status, raw, error)` (or the equivalent inline arguments).
+
+Update the import in each collector file to include `make_result`:
+
+```python
+from .utils import run_cmd, make_result          # basic collectors
+from .utils import run_cmd_rc, make_result       # sharing, hygiene
+```
+
+**Validation:** Dashboard and history page load correctly. All signal statuses and raw outputs are identical to before the refactor. Run each collector module as a script (`python src/collectors/system_integrity.py` etc.) to confirm the smoke-test blocks still print correctly.
+
+---
+
+### Step 22.3 — Extract Jinja2 card macro in `dashboard.html`
+
+Lines 44–83 (categorized signals loop body) and lines 94–133 (uncategorized signals loop body) in `templates/dashboard.html` are byte-for-byte identical. Extract the card HTML into a Jinja2 macro at the top of the template body (after `<body>`, before `<header>`):
+
+```jinja
+{% macro render_card(signal, anchor, remediations) %}
+<div class="card card--{{ signal.status | lower }}"{% if anchor %} id="{{ anchor }}"{% endif %}>
+  <div class="card-header">
+    <h2 class="signal-name">{{ signal.name }}</h2>
+    <span class="badge badge--{{ signal.status | lower }}">{{ signal.status }}</span>
+  </div>
+  {% if signal.status == 'PASS' %}
+  <details class="desc-details">
+    <summary class="desc-summary">What this checks</summary>
+    <p class="signal-description">{{ signal.description }}</p>
+  </details>
+  {% else %}
+  <p class="signal-description">{{ signal.description }}</p>
+  {% endif %}
+  <details class="raw-details"{% if signal.status != 'PASS' %} open{% endif %}>
+    <summary class="raw-summary">Raw output</summary>
+    <pre class="raw-output">{{ signal.raw }}</pre>
+  </details>
+  {% if signal.error %}
+  <p class="signal-error">Error: {{ signal.error }}</p>
+  {% endif %}
+  {% set fix = remediations.get(signal.name) %}
+  {% if fix and signal.status in fix.applies_to %}
+  <button class="fix-btn"
+          data-signal="{{ signal.name }}"
+          data-label="{{ fix.label }}">{{ fix.label }}</button>
+  {% endif %}
+</div>
+{% endmacro %}
+```
+
+The anchor assignment logic (`{% if signal.status == 'FAIL' and not ns.seen_fail %}...`) stays in the loop — it updates the shared `ns` namespace and cannot be moved inside a macro. The resolved `anchor` value is passed into the macro as an argument.
+
+Both loops become:
+
+```jinja
+{% for signal in cat_signals | status_sort %}
+{% if signal.status == 'FAIL' and not ns.seen_fail %}
+  {% set ns.seen_fail = true %}{% set anchor = 'status-first-fail' %}
+...
+{% endif %}
+{{ render_card(signal, anchor, remediations) }}
+{% endfor %}
+```
+
+**Validation:** All signal cards render identically to before. Summary bar anchor links scroll correctly to the first card of each status. Fix buttons still trigger the confirm flow.
+
+---
+
+### Step 22.4 — Extract JS elapsed-time counter to `static/js/utils.js`
+
+The "time since page loaded" counter IIFE appears in both `dashboard.html` (label prefix `"Last checked:"`) and `history.html` (label prefix `"Loaded:"`). The only difference is the prefix string.
+
+Create `static/js/utils.js`:
+
+```js
+function startElapsedCounter(elementId, prefix) {
+  var el = document.getElementById(elementId);
+  var loaded = Date.now();
+  function update() {
+    var secs = Math.round((Date.now() - loaded) / 1000);
+    if (secs < 10) {
+      el.textContent = 'Just now';
+    } else if (secs < 60) {
+      el.textContent = prefix + ': ' + secs + 's ago';
+    } else {
+      var mins = Math.floor(secs / 60);
+      el.textContent = prefix + ': ' + mins + ' min' + (mins !== 1 ? 's' : '') + ' ago';
+    }
+  }
+  update();
+  setInterval(update, 5000);
+}
+```
+
+In `templates/dashboard.html`, replace the elapsed-counter `<script>` block with:
+
+```html
+<script src="/static/js/utils.js"></script>
+<script>startElapsedCounter('last-checked-label', 'Last checked');</script>
+```
+
+In `templates/history.html`, replace the elapsed-counter `<script>` block with:
+
+```html
+<script src="/static/js/utils.js"></script>
+<script>startElapsedCounter('last-checked-label', 'Loaded');</script>
+```
+
+The existing `Content-Security-Policy` header (`script-src 'self' 'unsafe-inline'`) already permits same-origin script files, so no header changes are needed.
+
+**Validation:** On the dashboard, the header reads "Just now" at load, then "Last checked: Xs ago" after 10 s. On the history page, it reads "Just now" then "Loaded: Xs ago". Behavior is identical to before. No console errors.
+
+---
+
+### Phase 22 Integration Validation
+
+- [ ] `src/collectors/utils.py` exists and exports `run_cmd`, `run_cmd_rc`, `make_result`
+- [ ] No collector file defines its own `_run()` function
+- [ ] `python src/collectors/system_integrity.py` smoke test prints correct output
+- [ ] `python src/collectors/network.py` smoke test prints correct output
+- [ ] `python src/collectors/persistence.py` smoke test prints correct output
+- [ ] `python src/collectors/auth.py` smoke test prints correct output
+- [ ] `python src/collectors/sharing.py` smoke test prints correct output
+- [ ] `python src/collectors/hygiene.py` smoke test prints correct output
+- [ ] Dashboard loads with all 16 signal cards and correct statuses
+- [ ] All 5 Fix buttons work end-to-end (confirm → apply → reload)
+- [ ] Summary bar anchor links scroll to the correct first card of each status
+- [ ] Dashboard header counter reads "Just now" → "Last checked: Xs ago" → minutes
+- [ ] History header counter reads "Just now" → "Loaded: Xs ago" → minutes
+- [ ] `static/js/utils.js` is served at `/static/js/utils.js` (HTTP 200)
+- [ ] No regressions on the history page filter, tooltips, or fix log table
+
+---
+
 ## Appendix — Cross-Phase Design Principles
 
 These constraints apply to every phase and should be checked before any phase is considered complete.
