@@ -1,162 +1,240 @@
-# MacBook Security Dashboard — MVP Specification
+# MacBook Security Dashboard — Specification
 
 ## Project Overview
 
-This project is a personal, read-only security monitoring dashboard for a MacBook (Apple Silicon, macOS). It collects security-relevant signals from the local machine using native macOS command-line tools, then presents them in a lightweight web UI served on localhost. The primary audience is the owner of the machine. Learning goals are threefold: deepen familiarity with Claude Code as a development environment, gain hands-on experience with dashboard development (Python backend, local web UI), and build practical knowledge of macOS security fundamentals. The MVP is intentionally narrow — one category of signals, one page, no persistence — so the project ships quickly and can be extended incrementally.
+A personal macOS security monitoring dashboard for a MacBook (Apple Silicon, macOS). It collects security-relevant signals from the local machine using native macOS command-line tools, displays them in a lightweight web UI served on localhost, and provides one-click remediations for selected controls. The primary audience is the owner of the machine. The project ships as a local-only Flask app backed by a Waitress WSGI server, with a SQLite database for historical trend data.
+
+**Platform:** macOS Apple Silicon only. Python 3.10+ (Homebrew: `/opt/homebrew/bin/python3`).
+
+**Run command:** `.venv/bin/python src/app.py`
+
+**Default URL:** `http://127.0.0.1:8000`
 
 ---
 
-## Goals & Non-Goals
+## Goals
 
-### MVP Goals
-- Display the status of four core macOS system integrity controls: SIP, Gatekeeper, FileVault, and Secure Boot
-- Collect data using only native macOS CLI tools (no third-party agents)
-- Serve a single-page dashboard on `localhost` using Python
-- Support on-demand refresh (user-triggered; no background process)
-- Read-only: display status, no remediations
-- Strictly local: no data leaves the machine
+- Display the status of 16 always-on security signals across 6 categories (see below)
+- Provide an opt-in 17th signal that checks macOS version currency against Apple's API
+- Collect data using only native macOS CLI tools; no third-party agents
+- Serve a single-page dashboard at `http://127.0.0.1:PORT` using Python + Flask + Waitress
+- Support on-demand refresh and configurable auto-refresh
+- Provide one-click Fix buttons for 5 remediable controls (privilege-escalated via `osascript`)
+- Persist status transition history to a local SQLite database; surface it on `/history`
+- Optionally alert via macOS notifications when any signal changes state
+- Keep all data strictly local — no data leaves the machine unless `EXTERNAL_CALLS=1` is set
 
-### Non-Goals (MVP)
-- Network monitoring (ports, firewall, outbound connections)
-- Persistence monitoring (launch agents/daemons, login items)
-- Authentication monitoring (failed logins, sudo activity, SSH keys)
-- Remediations or one-click fixes
-- Auto-refresh / polling
-- External API calls (update version checks, CVE lookups)
-- Alerting or push notifications
-- Historical data or trend logging
-- Authentication to access the dashboard
+## Non-Goals
 
-> **Design principle:** The architecture should keep future expansion low-friction. Each monitoring category (network, persistence, auth) should be addable as a self-contained module without reworking existing code.
+- Remediating SIP, FileVault enrollment, or Secure Boot (require Recovery Mode or interactive setup)
+- Authentication to access the dashboard (it binds to `127.0.0.1` — local-only access is the security boundary)
+- CVE or threat-intel lookups
+- Multi-user or networked deployments
+- Mobile or non-macOS platforms
 
 ---
 
-## Security Signals to Monitor
+## Security Signals
 
-| Signal | Data Source / Command | Why It Matters | Risk If Misconfigured |
-|--------|-----------------------|----------------|-----------------------|
-| **SIP** (System Integrity Protection) | `csrutil status` | Prevents modification of protected system files and directories, even by root. A foundational macOS security control introduced in OS X El Capitan. | Malware or a compromised process can alter core OS binaries, inject code into system processes, or persist across reinstalls. |
-| **Gatekeeper** | `spctl --status` | Enforces that apps are signed by an Apple-notarized developer before running. Acts as the first line of defense against malicious software downloads. | Unsigned or tampered apps run without warning, bypassing Apple's malware scanning pipeline. |
-| **FileVault** | `fdesetup status` | Full-disk encryption for the macOS volume. Protects all data at rest using XTS-AES-128 encryption. | Anyone with physical access to the machine (lost/stolen) can read all data by removing the drive or booting an external OS. |
-| **Secure Boot** | `system_profiler SPiBridgeDataType` | Ensures only a trusted, Apple-signed operating system loads at startup. On Apple Silicon, this is enforced by the Secure Enclave. | A compromised bootloader or unauthorized OS could persist silently, surviving even a clean macOS reinstall. |
+### Category: System Integrity
 
-> **Note on Apple Silicon vs. Intel:** `bputil` is specific to Apple Silicon. On Intel Macs, Secure Boot is checked via the `Startup Security Utility` in Recovery Mode and is not easily scriptable. Since this project targets Apple Silicon, `bputil` is the correct tool — but its output should be treated carefully (see Open Questions).
+| Signal | Data Source | PASS | FAIL | WARN |
+|--------|-------------|------|------|------|
+| **System Integrity Protection** | `csrutil status` | enabled | disabled | — |
+| **Gatekeeper** | `spctl --status` | enabled | disabled | — |
+| **FileVault** | `fdesetup status` | on | off | — |
+| **Secure Boot** | `system_profiler SPiBridgeDataType` | Full Security | — | Reduced / No Security |
+
+### Category: Network
+
+| Signal | Data Source | PASS | FAIL | WARN |
+|--------|-------------|------|------|------|
+| **Application Firewall** | `socketfilterfw --getglobalstate` | on | off | — |
+| **Stealth Mode** | `socketfilterfw --getstealthmode` | on | — | off |
+| **Listening Services** | `lsof -nP -iTCP -iUDP` | no non-loopback listeners | — | non-loopback listener(s) present |
+
+### Category: Persistence
+
+| Signal | Data Source | PASS | FAIL | WARN |
+|--------|-------------|------|------|------|
+| **User Launch Agents** | `~/Library/LaunchAgents/` | no entries | — | entries present |
+| **Global Launch Agents** | `/Library/LaunchAgents/` (non-Apple) | no entries | — | entries present |
+| **Launch Daemons** | `/Library/LaunchDaemons/` (non-Apple) | no entries | — | entries present |
+| **Login Items** | `sfltool dumpbtm` | no entries | — | entries present |
+
+### Category: Authentication
+
+| Signal | Data Source | PASS | FAIL | WARN |
+|--------|-------------|------|------|------|
+| **Failed Logins** | `log show` (loginwindow) | no failures in 24h | — | failures detected |
+| **SSH Authorized Keys** | `~/.ssh/authorized_keys` | absent or empty | — | entries present |
+
+### Category: Sharing & Remote Access
+
+| Signal | Data Source | PASS | FAIL | WARN |
+|--------|-------------|------|------|------|
+| **Remote Login** | `launchctl list com.openssh.sshd` | disabled | enabled | — |
+| **Screen Sharing / Remote Management** | `launchctl list com.apple.screensharing` | disabled | enabled | — |
+| **AirDrop Receiver Mode** | `defaults read com.apple.NetworkBrowser` | off or Contacts Only | — | Everyone |
+
+### Category: Software Hygiene
+
+| Signal | Data Source | PASS | FAIL | WARN |
+|--------|-------------|------|------|------|
+| **Automatic Updates** | `defaults read /Library/Preferences/com.apple.SoftwareUpdate` | check + install enabled | check disabled | check on, install off |
+| **Root Certificate Trust** | `security find-certificate -a -p /Library/Keychains/System.keychain` | no entries | — | entries present |
+| **Screen Lock** | `defaults read com.apple.screensaver` | password on, delay = 0 | password off | password on, delay > 0 |
+
+### Opt-in Signal (requires `EXTERNAL_CALLS=1`)
+
+| Signal | Data Source | PASS | FAIL | WARN |
+|--------|-------------|------|------|------|
+| **macOS Version** | Apple GDMF API (`gdmf.apple.com`) | current in latest train | behind by a major release | minor update available |
+
+---
+
+## Remediations
+
+Five signals have Fix buttons that escalate privileges via `osascript` (standard macOS password dialog; Touch ID works; Cancel returns a clean error).
+
+| Signal | Button Label | Applies When | Command |
+|--------|-------------|--------------|---------|
+| **Application Firewall** | Enable Firewall | FAIL | `socketfilterfw --setglobalstate on` |
+| **Stealth Mode** | Enable Stealth Mode | WARN | `socketfilterfw --setstealthmode on` |
+| **Remote Login** | Disable Remote Login | FAIL | `launchctl disable system/com.openssh.sshd && launchctl bootout system/com.openssh.sshd` |
+| **Screen Sharing / Remote Management** | Disable Screen Sharing | FAIL | `launchctl disable system/com.apple.screensharing && launchctl bootout system/com.apple.screensharing` |
+| **Automatic Updates** | Enable Auto-Updates | FAIL | `defaults write … AutomaticCheckEnabled true && defaults write … CriticalUpdateInstall true` |
+
+All `cmd` values are fixed constants in the remediations registry — never derived from user input.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│           Presentation Layer            │
-│   Flask (localhost:PORT) + Jinja2 HTML  │
-└────────────────┬────────────────────────┘
-                 │ on page load / refresh
-┌────────────────▼────────────────────────┐
-│          Data Collection Layer          │
-│  Python module — one function per       │
-│  signal; calls macOS CLI via subprocess │
-│  and parses stdout into structured data │
-└────────────────┬────────────────────────┘
-                 │
-┌────────────────▼────────────────────────┐
-│          macOS System Tools             │
-│  csrutil · spctl · fdesetup · bputil    │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│                  Presentation Layer              │
+│   Waitress WSGI + Flask (127.0.0.1:PORT)         │
+│   Jinja2 templates  ·  static/style.css          │
+│   /  (dashboard)    ·  /history                  │
+└──────────────┬──────────────────┬────────────────┘
+               │ GET /            │ POST /fix/<name>
+┌──────────────▼──────┐  ┌────────▼───────────────┐
+│   Collector Layer   │  │   Remediation Layer     │
+│   src/collectors/   │  │   src/remediations/     │
+│   one fn per signal │  │   executor.py (osascript│
+│   subprocess, no    │  │   privilege escalation) │
+│   sudo, timeout     │  └─────────────────────────┘
+└──────────────┬──────┘
+               │
+┌──────────────▼──────────────────────────────────┐
+│                  Storage Layer                   │
+│   SQLite  ·  data/history.db                     │
+│   signal_history: transition-only writes         │
+│   fix_log: every fix attempt                     │
+│   Pruned to 30 days on each write                │
+└──────────────────────────────────────────────────┘
 
-Storage: None (MVP is stateless; data is collected fresh on each request)
+Background thread (opt-in, ALERT_INTERVAL > 0):
+  Alerter polls all collectors, writes new transitions to DB,
+  fires macOS notifications on state changes.
+
+Opt-in external call (EXTERNAL_CALLS=1):
+  check_macos_version() → HTTPS GET → gdmf.apple.com
+  No machine-identifying data sent.
 ```
-
-### macOS Permission Implications
-
-| Command | Privilege Required | Notes |
-|---------|-------------------|-------|
-| `csrutil status` | None | Readable by any user from Terminal |
-| `spctl --status` | None | Readable by any user |
-| `fdesetup status` | None | Readable by any user (full disk access not required for status) |
-| `system_profiler SPiBridgeDataType` | None | Replaces `bputil -d`, which requires root. Provides equivalent Secure Boot status without elevated privileges. |
-
-> No `sudo` or elevated privileges are required for the MVP read path. The app should **never** request or store credentials.
 
 ---
 
 ## Tech Stack
 
-| Tool / Framework | Role | Rationale |
-|------------------|------|-----------|
-| **Python 3** | Data collection + web server | Readable syntax, strong stdlib (`subprocess`, `shlex`), widely used in security tooling — high learning ROI |
-| **Flask** | Local HTTP server | Minimal boilerplate, excellent documentation, easy to extend; a common first Python web framework |
-| **Jinja2** | HTML templating | Bundled with Flask; separates display logic from data collection cleanly |
-| **HTML + CSS** | Dashboard UI | No JS framework for MVP — keeps the frontend trivial and the focus on the backend and security concepts |
-| **macOS native CLI tools** | Signal collection | Zero dependencies; `subprocess` calls are transparent and auditable; no third-party agent required |
-| **`venv`** | Python environment isolation | Keeps project dependencies separate from system Python; standard Python practice |
+| Tool / Framework | Role |
+|------------------|------|
+| **Python 3.10+** | Data collection, routing, background alerter |
+| **Flask 3.1** | HTTP routing, Jinja2 templating |
+| **Waitress 3.0** | Production WSGI server (replaces Werkzeug dev server) |
+| **Jinja2** | HTML templating (bundled with Flask) |
+| **SQLite** (stdlib `sqlite3`) | Signal transition history and fix audit log |
+| **HTML + CSS + vanilla JS** | Dashboard and history UI; no JS framework |
+| **macOS native CLI tools** | Signal collection — zero third-party agent dependencies |
+| **`venv`** | Python environment isolation |
 
 ---
 
-## MVP Feature Set
+## Environment Variables
 
-1. **Single-page dashboard** served at `http://localhost:<port>` — no login, no routing
-2. **Four status cards**, one per signal: SIP, Gatekeeper, FileVault, Secure Boot
-3. Each card displays:
-   - Signal name and brief description
-   - Status indicator: **PASS** / **FAIL** / **UNKNOWN**
-   - Raw command output (collapsed or small text) for transparency and learning
-4. **Color coding**: green (PASS), red (FAIL), yellow (UNKNOWN or parse error)
-5. **Refresh button** — reloads the page, re-runs all checks; no caching
-6. **Error handling** — if a command fails or output is unexpected, the card shows UNKNOWN rather than crashing
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `PORT` | `8000` | TCP port the server binds to |
+| `REFRESH_INTERVAL` | `0` | Auto-refresh interval in seconds; `0` = off |
+| `EXTERNAL_CALLS` | `""` | Set to `1` to enable the macOS Version opt-in signal |
+| `ALERT_INTERVAL` | `0` | Background polling interval in seconds; `0` = off |
+| `FLASK_DEBUG` | must not be set | App exits with an error if this is set to a truthy value |
 
 ---
 
-## Future Phases
+## Feature Set
 
-The following are explicitly out of MVP scope. Each maps to a self-contained module that can be added later.
+### Dashboard (`/`)
 
-| Phase | Scope |
-|-------|-------|
-| **Phase 2 — Refresh modes** | Add configurable polling interval; abstract the current on-demand model behind a refresh strategy interface |
-| **Phase 3 — Network signals** | Listening ports (`lsof -i -P -n`), firewall state (`socketfilterfw`), active outbound connections |
-| **Phase 4 — Persistence signals** | Launch agents/daemons (`launchctl list`), login items |
-| **Phase 5 — Authentication signals** | Failed login attempts, sudo activity (`log show`), authorized SSH keys |
-| **Phase 6 — Remediations** | Read-write mode; enable FileVault, toggle Gatekeeper, etc. Requires privilege escalation design |
-| **Phase 7 — External calls** | macOS update version check, optional CVE lookups; user-configurable opt-in |
-| **Phase 8 — Alerting** | macOS notifications or email when a signal changes state |
-| **Phase 9 — History** | Persist check results to a local SQLite database; trend view |
+- **Summary bar** — counts of FAIL / WARN / UNKNOWN / PASS signals; each is a link to the first card of that status
+- **Category sections** — 6 always-on categories; a 7th "External / Opt-in" section appears when `EXTERNAL_CALLS=1`
+- **Status sorting** — within each category: FAIL → WARN → UNKNOWN → PASS
+- **Status cards** — each shows signal name, status badge, description, raw CLI output (collapsible on PASS cards), and error message if collection failed
+- **Urgency tinting** — FAIL cards have a red left border; WARN amber; UNKNOWN yellow; PASS cards have no accent
+- **Fix buttons** — appear on applicable signals at applicable statuses; two-step confirmation (click → "Confirm?" + Cancel → execute)
+- **Last-checked label** — header shows time elapsed since the page loaded; updates every 5 s
+- **Auto-refresh** — optional countdown + automatic page reload when `REFRESH_INTERVAL > 0`
+
+### History (`/history`)
+
+- **Signal transitions table** — one row per signal; shows current status, last changed time (relative + absolute tooltip), and up to N recent PASS↔FAIL/WARN transitions
+- **Client-side filter** — type-ahead search narrows the signal transitions table by signal name
+- **Remediation attempts table** — every fix attempt logged with time, signal name, and outcome (success badge or failed badge + error message)
+- **Freshness label** — header shows time elapsed since the history page loaded
+- **Reload button** — navigates to `/history` and resets the freshness label
+
+### Web Application Security
+
+- **CSRF mitigation** — `Origin` header validated on all `POST /fix/<name>` requests; mismatched origin returns HTTP 403
+- **HTTP security headers** — `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'self'`, `Referrer-Policy: no-referrer` on all responses
+- **Fix audit log** — every fix attempt (success, failure, or user cancel) written to `fix_log` table in SQLite
+- **Remediation registry** — fixed command constants only; `/fix/<name>` validates the name against the registry before executing
 
 ---
 
 ## Data & Privacy
 
-- All data is collected locally using macOS system tools via `subprocess`
-- No data is written to disk in the MVP (in-memory only, discarded after each response)
-- No network calls are made to external services
-- The Flask server binds to `127.0.0.1` only — not accessible from other devices on the network
+- All signals are collected locally using macOS system tools via `subprocess`
+- Status transitions are written to `data/history.db` (local SQLite); the file is excluded from git
+- The only outbound network call is the macOS version check to `gdmf.apple.com`, and only when `EXTERNAL_CALLS=1` is explicitly set; no machine-identifying data is included
+- The Flask+Waitress server binds to `127.0.0.1` only — not accessible from other devices on the network
 - No credentials, tokens, or sensitive user data are collected or stored
-- Raw command output (displayed in the UI) never leaves the machine
+- Raw command output displayed in the UI never leaves the machine
+
+---
+
+## Known Limitations
+
+| Limitation | Reason |
+|------------|--------|
+| SIP, FileVault, Secure Boot have no Fix button | Require Recovery Mode or interactive setup wizard; cannot be scripted via `osascript` |
+| Listening Services omits root-owned processes | `lsof` runs without elevated privileges; system processes running as root are not visible |
+| Sudo activity not monitored | `COMMAND=` entries go to the BSM audit trail (`/var/audit/`), not the unified log; distinguishing user invocations from ~500 daily background daemon calls is not feasible without root |
+| `log show` returns empty output when Full Disk Access is suppressed | Empty output with no header = UNKNOWN, not PASS |
+| Screen Lock WARN delay value | `askForPasswordDelay` reflects the screensaver grace period, not the display sleep lock; users should verify in System Settings |
+| `'unsafe-inline'` in CSP | Required for inline `<script>` blocks in the templates; mitigated by the localhost-only binding |
 
 ---
 
 ## Open Questions / Risks
 
-| # | Question / Risk | Notes |
-|---|-----------------|-------|
-| 1 | **Secure Boot data source** | `bputil -d` requires root and was replaced by `system_profiler SPiBridgeDataType`, which provides equivalent output without elevated privileges. Verified on Mac15,9. The `Secure Boot:` field value should be matched by name, not position, as output format may vary across macOS versions. |
-| 2 | **Flask dev server exposure** | Flask's built-in server is not hardened for production. Binding to `127.0.0.1` mitigates network exposure, but the app should include a startup warning that it is not intended for multi-user or networked environments. |
-| 3 | **macOS version variance** | Command output format for `csrutil`, `spctl`, and `fdesetup` has changed across macOS versions. Parsers should match on known-good strings rather than assuming fixed field positions. |
-| 4 | **Port conflicts** | The default port needs to be configurable (env var or CLI flag) to avoid collisions with other local services. |
-| 5 | **SIP in virtual machines** | SIP is disabled by default in some VM configurations. The dashboard should note this context if SIP shows as disabled, rather than just showing FAIL. |
-
----
-
-## Milestones
-
-Ordered build steps for the MVP. Each step should be completable and testable independently.
-
-1. **Project scaffold** — directory structure, `venv`, `requirements.txt`, `README` with run instructions
-2. **Data collection module** — one Python function per signal; each returns a structured result (`status`, `raw_output`, `error`)
-3. **CLI verification** — run each command manually on the target machine; confirm output is parseable and matches expected format
-4. **Flask app skeleton** — single route (`/`) that calls all collectors and passes results to a template
-5. **HTML template** — four status cards, placeholder data, basic layout
-6. **Wire up data** — connect live collector output to the template; add color coding
-7. **Error handling pass** — ensure every card degrades to UNKNOWN cleanly on subprocess failure or unexpected output
-8. **End-to-end test** — run the app, verify all four cards render correctly on the target Apple Silicon Mac
-9. **Polish & document** — add startup warning about localhost-only use; document how to run in `README`
+| # | Question / Risk | Status |
+|---|-----------------|--------|
+| 1 | **Secure Boot data source** | Resolved: `system_profiler SPiBridgeDataType` provides equivalent output to `bputil -d` without root. Field matched by name, not position. |
+| 2 | **WSGI server for production use** | Resolved: switched to Waitress 3.0 (Phase 21). Werkzeug dev server no longer used. |
+| 3 | **macOS version variance** | Ongoing: parsers match known-good strings rather than fixed field positions; new macOS versions may require updates. |
+| 4 | **Port conflicts** | Resolved: `PORT` env var overrides the default (8000). |
+| 5 | **SIP in virtual machines** | Ongoing: SIP is disabled by default in some VM configurations. The FAIL status is accurate but context-dependent. |
+| 6 | **`spctl --status` stderr output** | Resolved: collectors fall back to stderr when stdout is empty. |
+| 7 | **`log show` case-sensitive predicate** | Resolved: case-sensitive `CONTAINS "failed"` used for loginwindow to avoid false positives from clipboard-related log entries. |
