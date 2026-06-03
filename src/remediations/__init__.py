@@ -57,4 +57,17 @@ REMEDIATIONS = {
         ),
         "applies_to": {"FAIL"},
     },
+    "Screen Lock": {
+        "label": "Enable Screen Lock",
+        # ~/Library/Preferences/ByHost/com.apple.screensaver.*.plist is a per-user
+        # preference. When the executor runs via osascript admin, the process runs as
+        # root (HOME=/var/root), so "defaults -currentHost write" alone would write to
+        # root's ByHost prefs instead of the console user's. "su <user> -c '...'" from
+        # root switches to the correct user without a password prompt.
+        "cmd": (
+            "su $(stat -f%Su /dev/console)"
+            " -c 'defaults -currentHost write com.apple.screensaver askForPassword -int 1'"
+        ),
+        "applies_to": {"FAIL"},
+    },
 }

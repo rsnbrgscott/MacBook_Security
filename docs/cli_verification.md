@@ -1015,3 +1015,67 @@ CREATE TABLE fix_log (
 $ sqlite3 data/history.db "SELECT ts, signal_name, success, error_message FROM fix_log ORDER BY ts DESC LIMIT 5;"
 1780437375|Application Firewall|1|
 ```
+
+---
+
+## G3 — Screen Lock Remediation
+
+Recorded on macOS 26.5.1 (build 25F80), Apple Silicon, 2026-06-03.
+
+**Background:**
+`check_screen_lock()` reads the effective screen-lock state via the System Events API:
+```zsh
+$ osascript -e 'tell application "System Events" to tell security preferences to return require password to wake'
+true
+```
+On macOS 26, `askForPassword` is absent from `~/Library/Preferences/ByHost/com.apple.screensaver.*.plist` when screen lock is enabled (the secure default is compiled-in, not persisted). The key is only written when the user explicitly disables screen lock.
+
+**Write-path investigation:**
+
+Direct `defaults -currentHost write` (as user) — works:
+```zsh
+$ defaults -currentHost write com.apple.screensaver askForPassword -int 1
+$ defaults -currentHost read com.apple.screensaver askForPassword
+1
+```
+
+Same command via osascript admin (runs as root) — writes to `/var/root`, NOT the user's plist:
+```python
+# Python subprocess test (mirrors executor.py)
+cmd = "defaults -currentHost write com.apple.screensaver askForPassword -int 1"
+subprocess.run(["osascript", "-e", f'do shell script "{cmd}" with administrator privileges'], ...)
+# result.returncode: 0
+# defaults -currentHost read com.apple.screensaver askForPassword → KeyError (not in user plist)
+```
+Root's HOME is `/var/root`; the write goes to root's ByHost plist, not the console user's.
+
+**Solution — `su <console_user> -c '...'` from root:**
+
+When the executor runs as root via osascript admin, `su username -c 'cmd'` switches to the target user without a password prompt (root can su to any user):
+```python
+cmd = "su $(stat -f%Su /dev/console) -c 'defaults -currentHost write com.apple.screensaver askForPassword -int 1'"
+subprocess.run(["osascript", "-e", f'do shell script "{cmd}" with administrator privileges'], ...)
+# result.returncode: 0
+# defaults -currentHost read com.apple.screensaver askForPassword → 1  ✓ (written to user plist)
+```
+
+`stat -f%Su /dev/console` returns the current console user (verified: `scottrosenberg`).
+
+**System Events state unaffected by the write (PASS state preserved):**
+```zsh
+$ osascript -e 'tell application "System Events" to tell security preferences to return require password to wake'
+true  # ✓ still PASS
+```
+
+**Cleanup (restores baseline — key absent = secure default):**
+```zsh
+$ defaults -currentHost delete com.apple.screensaver askForPassword
+$ defaults -currentHost read com.apple.screensaver
+{ CleanExit = 1; tokenRemovalAction = 0; }  # back to baseline
+```
+
+**Decision:** Remediation cmd for REMEDIATIONS registry:
+```python
+"su $(stat -f%Su /dev/console) -c 'defaults -currentHost write com.apple.screensaver askForPassword -int 1'"
+```
+`applies_to = {"FAIL"}` (button shown only when `require password to wake` is `false`).
