@@ -1079,3 +1079,66 @@ $ defaults -currentHost read com.apple.screensaver
 "su $(stat -f%Su /dev/console) -c 'defaults -currentHost write com.apple.screensaver askForPassword -int 1'"
 ```
 `applies_to = {"FAIL"}` (button shown only when `require password to wake` is `false`).
+
+---
+
+## G4 — AirDrop Remediation
+
+Recorded on macOS 26.5.1 (build 25F80), Apple Silicon, 2026-06-03.
+
+**Pref location and privilege model:**
+```zsh
+$ ls -la ~/Library/Preferences/com.apple.sharingd.plist
+-rw-------@ 1 scottrosenberg  staff  3499 Jun  3 12:11 /Users/scottrosenberg/Library/Preferences/com.apple.sharingd.plist
+```
+The pref is user-owned (`~/Library/Preferences/`), not `/Library/Preferences/`. No admin privileges needed for the write itself, but the executor always runs via osascript admin (root), so the `su <console_user>` pattern from G3 is required.
+
+**Write takes effect without process restart:**
+```zsh
+# Set WARN state
+$ defaults write com.apple.sharingd DiscoverableMode -string "Everyone"
+$ defaults read com.apple.sharingd DiscoverableMode
+Everyone
+
+# Apply fix (as user — verifying the write works)
+$ defaults write com.apple.sharingd DiscoverableMode -string "Contacts Only"
+$ defaults read com.apple.sharingd DiscoverableMode
+Contacts Only
+# check_airdrop() → PASS Contacts Only  ✓
+```
+`cfprefsd` broadcasts the preference change to `sharingd` immediately; no process restart needed.
+
+**Double-quote escaping for "Contacts Only":**
+
+`"Contacts Only"` contains a space, so it must be quoted in the shell command. The executor wraps `cmd` in:
+```python
+f'do shell script "{cmd}" with administrator privileges'
+```
+Double quotes inside the outer `"..."` must be escaped as `\"` in the AppleScript string. Direct test via Python subprocess (mirrors executor.py):
+```python
+cmd = "su $(stat -f%Su /dev/console) -c 'defaults write com.apple.sharingd DiscoverableMode -string \\\"Contacts Only\\\"'"
+# cmd string value: su $(stat -f%Su /dev/console) -c 'defaults write com.apple.sharingd DiscoverableMode -string \"Contacts Only\"'
+result = subprocess.run(["osascript", "-e", f'do shell script "{cmd}" with administrator privileges'], ...)
+# rc: 0
+# defaults read com.apple.sharingd DiscoverableMode → Contacts Only  ✓
+```
+
+**Full executor end-to-end test:**
+```python
+defaults write com.apple.sharingd DiscoverableMode -string "Everyone"  # WARN state
+run_fix("AirDrop Receiver Mode")
+# → {'success': True, 'output': '', 'error': None}
+defaults read com.apple.sharingd DiscoverableMode  # → Contacts Only
+# check_airdrop() → PASS Contacts Only  ✓
+```
+
+**Restore:**
+```zsh
+$ defaults write com.apple.sharingd DiscoverableMode -string "Off"
+```
+
+**Decision:** Remediation cmd for REMEDIATIONS registry:
+```python
+r"su $(stat -f%Su /dev/console) -c 'defaults write com.apple.sharingd DiscoverableMode -string \"Contacts Only\"'"
+```
+`applies_to = {"WARN"}` (button shown only when `DiscoverableMode == "Everyone"`).

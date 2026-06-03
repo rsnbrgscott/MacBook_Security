@@ -57,6 +57,22 @@ REMEDIATIONS = {
         ),
         "applies_to": {"FAIL"},
     },
+    "AirDrop Receiver Mode": {
+        "label": "Restrict to Contacts Only",
+        # com.apple.sharingd is a user pref (~/Library/Preferences/); running via
+        # osascript admin means root's HOME is /var/root, so the write would land in
+        # root's prefs. "su <console_user> -c '...'" from root runs the write as the
+        # correct user without a password prompt.
+        # "Contacts Only" has a space, so it must be double-quoted in the shell command;
+        # those double quotes are AppleScript-escaped as \" within the outer do shell
+        # script "..." string so the AppleScript parser treats them as literal characters.
+        "cmd": (
+            "su $(stat -f%Su /dev/console)"
+            r" -c 'defaults write com.apple.sharingd DiscoverableMode -string \"Contacts Only\"'"
+        ),
+        # AirDrop "Everyone" is WARN (not FAIL); the button appears on WARN.
+        "applies_to": {"WARN"},
+    },
     "Screen Lock": {
         "label": "Enable Screen Lock",
         # ~/Library/Preferences/ByHost/com.apple.screensaver.*.plist is a per-user
