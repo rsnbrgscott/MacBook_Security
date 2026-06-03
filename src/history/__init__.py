@@ -7,6 +7,7 @@ each write. The connection is shared across the main thread and the alerter
 thread; all writes are serialised with _lock.
 """
 
+import datetime
 import sqlite3
 import threading
 import time
@@ -114,6 +115,7 @@ def get_fix_log(limit: int = 20) -> list[dict]:
     return [
         {
             "ts_display": _relative_time(ts),
+            "ts_iso": datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S"),
             "signal_name": signal_name,
             "success": bool(success),
             "error_message": error_message,
@@ -146,6 +148,7 @@ def get_summary() -> list[dict]:
                 "from_status": entries[i - 1][1],
                 "to_status": entries[i][1],
                 "when": _relative_time(entries[i][0]),
+                "ts_iso": datetime.datetime.fromtimestamp(entries[i][0]).strftime("%Y-%m-%d %H:%M:%S"),
             }
             for i in range(1, len(entries))
         ]
@@ -154,6 +157,7 @@ def get_summary() -> list[dict]:
             "name": name,
             "last_status": last_status,
             "last_changed": _relative_time(last_ts) if len(entries) > 1 else None,
+            "last_changed_iso": datetime.datetime.fromtimestamp(last_ts).strftime("%Y-%m-%d %H:%M:%S") if len(entries) > 1 else None,
             "transitions": transitions[-5:],
         })
     return result

@@ -1983,7 +1983,7 @@ Files changed: `templates/history.html`, `templates/dashboard.html`, `static/sty
 
 ---
 
-### Step 18.1 — Absolute timestamps on hover (history page)
+### ✅ Step 18.1 — Absolute timestamps on hover (history page)
 
 Pass the raw Unix timestamp alongside the relative string so the full ISO date/time is available as a tooltip. Update `get_summary()` and `get_fix_log()` to include a `ts_iso` field.
 
@@ -2019,7 +2019,7 @@ In `templates/history.html`:
 
 ---
 
-### Step 18.2 — Client-side filter for signal transitions table
+### ✅ Step 18.2 — Client-side filter for signal transitions table
 
 Add a plain text input above the signal transitions table. Typing filters rows by signal name (case-insensitive substring match) without a page reload.
 
@@ -2076,7 +2076,7 @@ In `static/style.css`, add:
 
 ---
 
-### Step 18.3 — Remediation Attempts subtitle
+### ✅ Step 18.3 — Remediation Attempts subtitle
 
 Add a subtitle paragraph below the "Recent Remediation Attempts" heading, matching the style of the signal history subtitle.
 
@@ -2090,7 +2090,7 @@ In `templates/history.html`, after the `<h2>Recent Remediation Attempts</h2>` el
 
 ---
 
-### Step 18.4 — Favicon
+### ✅ Step 18.4 — Favicon
 
 Add an inline SVG shield favicon to both pages so the app is identifiable in a browser tab.
 
@@ -2104,7 +2104,7 @@ In both `templates/dashboard.html` and `templates/history.html`, add inside `<he
 
 ---
 
-### Step 18.5 — Mid-range responsive breakpoint
+### ✅ Step 18.5 — Mid-range responsive breakpoint
 
 Add a 720px breakpoint so the card grid uses a single column in split-screen window widths, not just at sub-480px.
 
@@ -2135,14 +2135,14 @@ In `static/style.css`, update the existing `@media` block to also cover 720px:
 
 ### Phase 18 Integration Validation
 
-- [ ] Hovering over any relative-time cell in the signal transitions table shows a tooltip with the absolute date/time
-- [ ] Hovering over relative-time cells in the Remediation Attempts table shows tooltips
-- [ ] Typing in the filter box hides non-matching signal rows; clearing restores all rows
-- [ ] The Remediation Attempts section has a subtitle paragraph in muted text
-- [ ] Both browser tabs (dashboard and history) show a green shield favicon
-- [ ] At ~700px window width, the card grid stacks to a single column
-- [ ] At full width, the card grid uses the auto-fill multi-column layout
-- [ ] No regressions on the signal transitions table or fix log table
+- [x] Hovering over any relative-time cell in the signal transitions table shows a tooltip with the absolute date/time
+- [x] Hovering over relative-time cells in the Remediation Attempts table shows tooltips
+- [x] Typing in the filter box hides non-matching signal rows; clearing restores all rows
+- [x] The Remediation Attempts section has a subtitle paragraph in muted text
+- [x] Both browser tabs (dashboard and history) show a green shield favicon
+- [x] At ~700px window width, the card grid stacks to a single column
+- [x] At full width, the card grid uses the auto-fill multi-column layout
+- [x] No regressions on the signal transitions table or fix log table
 
 ---
 

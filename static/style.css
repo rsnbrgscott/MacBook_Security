@@ -288,6 +288,27 @@ body {
   color: var(--text-primary);
 }
 
+/* ── History filter ────────────────────────────────────────────────────── */
+.filter-bar {
+  margin-bottom: 0.75rem;
+}
+
+.filter-input {
+  background-color: var(--bg-card);
+  border: 1px solid var(--bg-card-border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  padding: 0.4rem 0.75rem;
+  width: 16rem;
+  outline: none;
+}
+
+.filter-input:focus {
+  border-color: var(--text-muted);
+}
+
 /* ── History page ──────────────────────────────────────────────────────── */
 .history-main {
   max-width: 960px;
@@ -383,6 +404,12 @@ body {
 }
 
 /* ── Responsive ────────────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 480px) {
   .page-header {
     flex-direction: column;

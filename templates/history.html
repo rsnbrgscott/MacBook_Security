@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Signal History — MacBook Security Dashboard</title>
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2315803d'><path d='M12 2L4 6v6c0 5.25 3.5 10.15 8 11.35C16.5 22.15 20 17.25 20 12V6l-8-4z'/></svg>">
 </head>
 <body>
   <header class="page-header">
@@ -20,6 +21,9 @@
     <p class="history-subtitle">Status transitions recorded over the past 30 days. Only changes are stored — repeated identical statuses are not duplicated.</p>
 
     {% if summary %}
+    <div class="filter-bar">
+      <input type="search" id="signal-filter" class="filter-input" placeholder="Filter by signal name…" autocomplete="off">
+    </div>
     <table class="history-table">
       <thead>
         <tr>
@@ -29,14 +33,14 @@
           <th>Recent Transitions</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="signal-history-body">
         {% for row in summary %}
         <tr>
           <td class="ht-name">{{ row.name }}</td>
           <td class="ht-status">
             <span class="badge badge--{{ row.last_status | lower }}">{{ row.last_status }}</span>
           </td>
-          <td class="ht-changed">
+          <td class="ht-changed"{% if row.last_changed_iso %} title="{{ row.last_changed_iso }}"{% endif %}>
             {% if row.last_changed %}{{ row.last_changed }}{% else %}<span class="ht-none">no changes recorded</span>{% endif %}
           </td>
           <td class="ht-transitions">
@@ -46,7 +50,7 @@
                 <span class="badge badge--{{ t.from_status | lower }} badge--sm">{{ t.from_status }}</span>
                 <span class="ht-arrow">→</span>
                 <span class="badge badge--{{ t.to_status | lower }} badge--sm">{{ t.to_status }}</span>
-                <span class="ht-when">{{ t.when }}</span>
+                <span class="ht-when" title="{{ t.ts_iso }}">{{ t.when }}</span>
               </div>
               {% endfor %}
             {% else %}
@@ -61,6 +65,7 @@
     <p class="history-empty">No history recorded yet — <a href="/">load the dashboard</a> to capture a snapshot.</p>
     {% endif %}
     <h2 class="history-title" style="margin-top:2.5rem;">Recent Remediation Attempts</h2>
+    <p class="history-subtitle">Each fix attempt is recorded regardless of outcome, including user cancellations. Entries are displayed newest first.</p>
 
     {% if fix_log %}
     <table class="history-table">
@@ -74,7 +79,7 @@
       <tbody>
         {% for entry in fix_log %}
         <tr>
-          <td class="ht-changed">{{ entry.ts_display }}</td>
+          <td class="ht-changed" title="{{ entry.ts_iso }}">{{ entry.ts_display }}</td>
           <td class="ht-name">{{ entry.signal_name }}</td>
           <td class="ht-transitions">
             {% if entry.success %}
@@ -91,5 +96,20 @@
     <p class="history-empty">No remediation attempts recorded.</p>
     {% endif %}
   </main>
+
+  <script>
+    (function () {
+      var input = document.getElementById('signal-filter');
+      if (!input) return;
+      var rows = document.querySelectorAll('#signal-history-body tr');
+      input.addEventListener('input', function () {
+        var q = input.value.toLowerCase();
+        rows.forEach(function (row) {
+          var name = (row.querySelector('.ht-name') || {}).textContent || '';
+          row.style.display = name.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
+        });
+      });
+    })();
+  </script>
 </body>
 </html>
