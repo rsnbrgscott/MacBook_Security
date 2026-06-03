@@ -15,6 +15,11 @@ import subprocess
 import urllib.error
 import urllib.request
 
+try:
+    from .utils import make_result
+except ImportError:
+    from utils import make_result  # noqa: F401 — direct script execution
+
 # Apple's authoritative software version feed — no identifying data is sent.
 _VERSION_API = "https://gdmf.apple.com/v2/pmv"
 _TIMEOUT = 10
@@ -126,13 +131,7 @@ def check_macos_version() -> dict:
 
     current, err = _current_version()
     if err:
-        return {
-            "name": name,
-            "description": description,
-            "status": "UNKNOWN",
-            "raw": "",
-            "error": f"Could not read current macOS version: {err}",
-        }
+        return make_result(name, description, "UNKNOWN", "", f"Could not read current macOS version: {err}")
 
     current_tuple = _parse_version(current)
     current_major = current_tuple[0] if current_tuple else 0
@@ -147,29 +146,11 @@ def check_macos_version() -> dict:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             data = json.loads(resp.read().decode())
     except (urllib.error.URLError, socket.timeout) as e:
-        return {
-            "name": name,
-            "description": description,
-            "status": "UNKNOWN",
-            "raw": f"Current: {current}",
-            "error": f"Network error fetching version data: {e}",
-        }
+        return make_result(name, description, "UNKNOWN", f"Current: {current}", f"Network error fetching version data: {e}")
     except json.JSONDecodeError as e:
-        return {
-            "name": name,
-            "description": description,
-            "status": "UNKNOWN",
-            "raw": f"Current: {current}",
-            "error": f"Could not parse version API response: {e}",
-        }
+        return make_result(name, description, "UNKNOWN", f"Current: {current}", f"Could not parse version API response: {e}")
     except Exception as e:
-        return {
-            "name": name,
-            "description": description,
-            "status": "UNKNOWN",
-            "raw": f"Current: {current}",
-            "error": f"Unexpected error: {e}",
-        }
+        return make_result(name, description, "UNKNOWN", f"Current: {current}", f"Unexpected error: {e}")
 
     entries = data.get("PublicAssetSets", {}).get("macOS", [])
     versions = set()
@@ -179,13 +160,7 @@ def check_macos_version() -> dict:
             versions.add(pv)
 
     if not versions:
-        return {
-            "name": name,
-            "description": description,
-            "status": "UNKNOWN",
-            "raw": f"Current: {current}",
-            "error": "No macOS versions found in API response",
-        }
+        return make_result(name, description, "UNKNOWN", f"Current: {current}", "No macOS versions found in API response")
 
     parsed = [(v, _parse_version(v)) for v in versions]
     max_major = max(t[0] for _, t in parsed)
@@ -194,42 +169,19 @@ def check_macos_version() -> dict:
     if current_major < max_major:
         latest_overall = max(parsed, key=lambda x: x[1])
         latest = latest_overall[0]
-        raw = f"Current: {current}\nLatest:  {latest}"
-        return {
-            "name": name,
-            "description": description,
-            "status": "FAIL",
-            "raw": raw,
-            "error": None,
-        }
+        return make_result(name, description, "FAIL", f"Current: {current}\nLatest:  {latest}")
 
     same_major = [(v, t) for v, t in parsed if t[0] == current_major]
     if not same_major:
-        return {
-            "name": name,
-            "description": description,
-            "status": "UNKNOWN",
-            "raw": f"Current: {current}",
-            "error": f"macOS {current_major}.x not found in version feed",
-        }
+        return make_result(name, description, "UNKNOWN", f"Current: {current}", f"macOS {current_major}.x not found in version feed")
 
     latest_in_train = max(same_major, key=lambda x: x[1])[0]
     raw = f"Current: {current}\nLatest:  {latest_in_train}"
 
     # WARN: on the right major but a minor/patch update is available.
     # PASS: fully up-to-date within this release train.
-    if current_tuple >= _parse_version(latest_in_train):
-        status = "PASS"
-    else:
-        status = "WARN"
-
-    return {
-        "name": name,
-        "description": description,
-        "status": status,
-        "raw": raw,
-        "error": None,
-    }
+    status = "PASS" if current_tuple >= _parse_version(latest_in_train) else "WARN"
+    return make_result(name, description, status, raw)
 
 
 if __name__ == "__main__":
