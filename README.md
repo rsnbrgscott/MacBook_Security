@@ -85,6 +85,14 @@ WARN on authentication signals means activity was detected — review if unexpec
 | **Root Certificate Trust** | `security dump-trust-settings -d` | Checks for custom CA certificates added to the system-domain trust store. A rogue CA can silently intercept HTTPS traffic. PASS when no non-Apple trust overrides are present; WARN if any custom anchor is found — review the listed certificate names. |
 | **Screen Lock** | `osascript` / System Events security preferences; `defaults -currentHost read com.apple.screensaver askForPasswordDelay` | FAIL if no password is required on wake. WARN if a password is required but a grace period (delay > 0) is set, meaning the screen can be unlocked for a window after waking. PASS if password is required immediately. |
 
+### AI Security
+
+| Signal | What it checks | Why it matters |
+|--------|---------------|----------------|
+| **AI API Keys in Shell Config** | `~/.zshrc`, `~/.zprofile`, `~/.zshenv`, `~/.bashrc`, `~/.bash_profile`, `~/.profile` — scanned for known AI provider key variable names (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, and nine others) | Keys stored in dotfiles are readable by any process running as your user and are frequently committed to git by accident. Keys should live in a password manager or secrets vault. WARN if any AI key variable is found; the raw output shows the filename and key name only — never the value. |
+| **Shell History Key Exposure** | `~/.zsh_history` and `~/.bash_history` — scanned for AI key value patterns (`sk-` OpenAI prefix, `sk-ant-api` Anthropic prefix, `AIza` Google prefix) | Keys typed or pasted in the terminal are saved in shell history in plaintext and readable by any process running as your user. WARN if any match is found; the raw output shows a count of matches only — never the matched strings. |
+| **Local AI Server Exposure** | `lsof` checks whether Ollama (port 11434) or LM Studio (port 1234) is listening on all network interfaces (`*`) vs. loopback only (`127.0.0.1`) | A local LLM server bound to all interfaces is reachable by any host on your network and can receive arbitrary prompts. The default for both tools is loopback-only. Exposure usually means `OLLAMA_HOST=0.0.0.0` was set. FAIL if any AI server is network-accessible; PASS if all are loopback-only or not running. |
+
 ### External (opt-in)
 
 These signals make outbound network requests and are disabled by default. Enable with `EXTERNAL_CALLS=1`.
@@ -122,6 +130,7 @@ Every fix attempt — including cancellations and failures — is recorded in `d
 - **Software update and screen lock signals rely on macOS defaults.** `AutomaticCheckEnabled`, `CriticalUpdateInstall`, and `askForPasswordDelay` are only written to disk when explicitly changed from Apple's defaults. Absence of these keys means macOS is using its built-in secure defaults (updates on, immediate lock) — this is PASS, not UNKNOWN. If a preference management tool (MDM, `defaults write`) has written `0` to any of these keys, the signal will reflect it.
 - **CSP allows `'unsafe-inline'` scripts.** The `Content-Security-Policy` header includes `'unsafe-inline'` in `script-src` because the dashboard template contains inline `<script>` blocks. Moving those scripts to files in `static/` and passing dynamic values via `data-*` attributes would allow this allowance to be removed. Deferred to a future phase.
 - **Screen Lock password state read via System Events.** The `osascript` query (`require password to wake`) reads the effective System Preferences state. If Automation access to System Events is revoked in System Settings → Privacy & Security, this collector returns UNKNOWN.
+- **AI Security signals have limited detection scope.** The shell config check covers only the 12 key variable names listed in the Signals table — keys stored under non-standard names, in a password manager CLI (e.g. `op run`), or in project-level `.env` files are not detected. The shell history check covers three key value prefixes (`sk-`, `sk-ant-api`, `AIza`) — obfuscated, base64-encoded, or otherwise transformed keys are not detected. Neither check requires or stores the key values themselves.
 - **Other signal categories are planned.** See `docs/SPEC.md` for the full roadmap.
 
 ## Project structure
@@ -143,6 +152,7 @@ MacBook_Security/
 │   │   ├── auth.py              # Failed Logins, SSH Authorized Keys
 │   │   ├── sharing.py           # Remote Login, Screen Sharing, AirDrop
 │   │   ├── hygiene.py           # Automatic Updates, Root Certificate Trust, Screen Lock
+│   │   ├── ai.py                # AI API Keys in Shell Config, Shell History Key Exposure, Local AI Server Exposure
 │   │   └── external.py          # macOS Version (opt-in, requires EXTERNAL_CALLS=1)
 │   ├── alerting/
 │   │   ├── __init__.py          # start_alerter() — background polling thread

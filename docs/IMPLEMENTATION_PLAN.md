@@ -3241,7 +3241,7 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 - Add a Known Limitations entry noting that the shell config check covers only the listed key variable names — keys stored under non-standard names, in Keychain, in a password manager CLI, or in project-level `.env` files are not detected. Similarly, the history check covers specific key value patterns; obfuscated or base64-encoded keys are not detected.
 - Confirm `docs/cli_verification.md` has the Phase 24 section from Step 24.1.
 
-**Validation:** README accurately describes each new signal, its status logic, and its detection limitations. `docs/cli_verification.md` has the Phase 24 section.
+**Validation:** ✅ README accurately describes each new signal, its status logic, and its detection limitations. Known Limitations entry added for shell config and history detection scope. `ai.py` added to project structure table. `docs/cli_verification.md` has the Phase 24 section.
 
 ---
 
