@@ -121,17 +121,14 @@ Every fix attempt — including cancellations and failures — is recorded in `d
 
 ## Known limitations
 
-- **Apple Silicon only.** The Secure Boot check uses `system_profiler SPiBridgeDataType`, which is not available on Intel Macs.
-- **History is local only.** Signal history is stored in `data/history.db` (SQLite, auto-created). Only status transitions are recorded; identical consecutive statuses are not duplicated. Data older than 30 days is pruned automatically.
-- **Most signals have no Fix button.** SIP and Secure Boot can only be toggled in Recovery Mode and cannot be changed from a running OS. FileVault enrollment generates a recovery key and requires interactive input — use System Settings instead. Gatekeeper, Listening Services, persistence signals, and authentication signals do not have automated remediations.
-- **Local access only.** The server binds to `127.0.0.1` and is not reachable from other devices on the network.
-- **Listening Services shows current-user processes only.** `lsof` runs without elevated privileges, so system-owned processes (running as root) do not appear in the Listening Services output.
-- **Sudo activity is not monitored.** `sudo`'s audit record (the command that was run) is written to the BSM audit trail (`/var/audit/`), which requires root to read. The unified log only surfaces background system-level sudo calls (~500+ per day from daemons), which cannot be distinguished from user invocations. Deferred until a root-free data source is identified.
-- **Software update and screen lock signals rely on macOS defaults.** `AutomaticCheckEnabled`, `CriticalUpdateInstall`, and `askForPasswordDelay` are only written to disk when explicitly changed from Apple's defaults. Absence of these keys means macOS is using its built-in secure defaults (updates on, immediate lock) — this is PASS, not UNKNOWN. If a preference management tool (MDM, `defaults write`) has written `0` to any of these keys, the signal will reflect it.
-- **CSP allows `'unsafe-inline'` scripts.** The `Content-Security-Policy` header includes `'unsafe-inline'` in `script-src` because the dashboard template contains inline `<script>` blocks. Moving those scripts to files in `static/` and passing dynamic values via `data-*` attributes would allow this allowance to be removed. Deferred to a future phase.
-- **Screen Lock password state read via System Events.** The `osascript` query (`require password to wake`) reads the effective System Preferences state. If Automation access to System Events is revoked in System Settings → Privacy & Security, this collector returns UNKNOWN.
-- **AI Security signals have limited detection scope.** The shell config check covers only the 12 key variable names listed in the Signals table — keys stored under non-standard names, in a password manager CLI (e.g. `op run`), or in project-level `.env` files are not detected. The shell history check covers three key value prefixes (`sk-`, `sk-ant-api`, `AIza`) — obfuscated, base64-encoded, or otherwise transformed keys are not detected. Neither check requires or stores the key values themselves.
-- **Other signal categories are planned.** See `docs/SPEC.md` for the full roadmap.
+See [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md) for the full list with context and resolution paths. Key items:
+
+- **Apple Silicon only** — Secure Boot check not available on Intel Macs.
+- **No `sudo` in collectors** — root-owned listening processes and the BSM audit trail are not visible.
+- **Sudo activity not monitored** — BSM audit trail requires root; unified log cannot distinguish user from daemon invocations.
+- **Most signals have no Fix button** — SIP, Secure Boot, and FileVault require Recovery Mode or interactive input.
+- **AI Security detection scope** — shell config and history checks cover known key name patterns only; `.env` files and non-standard key names are not scanned.
+- **Local access only** — server binds to `127.0.0.1`; not reachable from other devices.
 
 ## Project structure
 
