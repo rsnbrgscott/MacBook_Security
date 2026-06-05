@@ -3074,6 +3074,197 @@ def test_security_headers_present(flask_client):
 
 ---
 
+## Phase 24 — AI Security Signals
+
+**Goal:** Add a new "AI Security" category covering three risks that arise from regular AI tool use: API keys stored in shell config files (persistent plaintext exposure), API key values in shell history (exposure from terminal paste), and local LLM servers bound to all network interfaces (network-accessible inference). Each signal follows the same collector shape as all prior phases: `name`, `description`, `status`, `raw`, `error`.
+
+**Signals in scope:**
+
+| Signal | Source | PASS | WARN | FAIL | UNKNOWN |
+|--------|--------|------|------|------|---------|
+| AI API Keys in Shell Config | `~/.zshrc`, `~/.zprofile`, `~/.zshenv`, `~/.bashrc`, `~/.bash_profile`, `~/.profile` | No AI key variable names found | One or more AI key exports detected | — | OSError on all files checked |
+| Shell History Key Exposure | `~/.zsh_history`, `~/.bash_history` | No key value patterns found | One or more key-like strings found | — | All history files unreadable |
+| Local AI Server Exposure | `lsof -nP -iTCP:11434 -sTCP:LISTEN` (Ollama), `lsof -nP -iTCP:1234 -sTCP:LISTEN` (LM Studio) | No AI server running, or all bound to loopback | — | Any AI server bound to all interfaces | lsof failed |
+
+> **Why WARN (not FAIL) for shell config keys:** A key in a dotfile is a real security concern — it is exposed to any subprocess and is often accidentally committed to git — but it may be intentional developer configuration. WARN prompts the user to review without declaring a definitive misconfiguration.
+
+> **Why WARN (not FAIL) for shell history:** History files are user-readable and not normally shared. The risk is real (any process running as the user can read history) but softer than an inbound network listener. WARN is the appropriate level.
+
+> **Why FAIL for local server network exposure:** An AI inference server bound to `0.0.0.0` is reachable by any host on the same network and can accept arbitrary prompts. On a personal machine this is almost certainly unintentional. This mirrors the treatment of Remote Login and Screen Sharing in Phase 14: inbound network listeners on personal machines default to FAIL.
+
+> **Key value privacy in raw output:** The shell config and history signals must never include actual key values in the `raw` field. Only filenames, key variable names, and match counts are shown.
+
+> **AI tool coverage — shell config key names:** `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `COHERE_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`, `HUGGINGFACE_HUB_TOKEN`, `TOGETHER_API_KEY`, `REPLICATE_API_TOKEN`, `PERPLEXITY_API_KEY`.
+
+> **AI tool coverage — history value patterns:** `sk-[a-zA-Z0-9]{20,}` (OpenAI key prefix), `sk-ant-api[0-9]{2}-` (Anthropic key prefix), `AIza[0-9A-Za-z_-]{35}` (Google API key prefix).
+
+> **Local server ports checked:** Ollama defaults to `11434`; LM Studio defaults to `1234`. Both are checked by the same collector.
+
+---
+
+### Step 24.1 — Verify CLI commands and data sources
+
+Without `sudo`, run each candidate command and record the exact output for both the match and no-match cases:
+
+| Command / Path | What to verify |
+|----------------|----------------|
+| `grep -n "OPENAI_API_KEY" ~/.zshrc 2>/dev/null` | Does it return the matching line? Exit code when absent or no match? |
+| `ls ~/.zshrc ~/.zprofile ~/.zshenv ~/.bashrc ~/.bash_profile ~/.profile 2>&1` | Which files exist on this machine? |
+| `wc -l ~/.zsh_history 2>/dev/null` | Is the file readable? What is the format of history entries (`:timestamp:elapsed;command` prefix)? |
+| `grep -c "sk-" ~/.zsh_history 2>/dev/null` | Does it exit 1 when there are 0 matches? |
+| `lsof -nP -iTCP:11434 -sTCP:LISTEN 2>/dev/null` | Output when Ollama is not running — empty or exit non-zero? |
+| `lsof -nP -iTCP:1234 -sTCP:LISTEN 2>/dev/null` | Same for LM Studio port |
+
+For the lsof check: if Ollama is installed, also run `ollama serve` in one terminal and check the lsof output while it is running. Determine the exact format of the `NAME` column: does it say `*:11434` or `0.0.0.0:11434` when bound to all interfaces? Does it say `127.0.0.1:11434` for loopback-only?
+
+For the shell config check: note which of the six candidate files exist on this machine. Absent files must be silently skipped (not an error); only a complete read failure across all files is UNKNOWN.
+
+Record all output in `docs/cli_verification.md` under a new `## Phase 24 — AI Security` heading.
+
+**Step 24.1 outcome:** All commands confirmed working without sudo. Results recorded in `docs/cli_verification.md § Phase 24`.
+
+Key findings:
+- **Shell config files present on this machine:** `~/.zshrc`, `~/.bashrc`, `~/.bash_profile`. Absent files (`~/.zprofile`, `~/.zshenv`, `~/.profile`) skipped silently.
+- **grep exit codes:** rc=0 on match, rc=1 on no-match, rc=2 on missing file. Decision: use `pathlib.Path.read_text()` + `re.search()` directly — avoids subprocess and keeps key values out of argument strings.
+- **zsh_history format on this machine:** plain commands only (no `: ts:elapsed;` prefix — `EXTENDED_HISTORY` not set). Parser must handle both plain and extended formats.
+- **Absent history files are PASS** (not UNKNOWN) — many machines have only one shell history file.
+- **Ollama is running on this machine:** bound to `127.0.0.1:11434` (loopback-only, PASS). NAME column format for loopback: `127.0.0.1:<port>`. All-interfaces format: `*:<port>` (confirmed from Phase 7 network collector).
+- **LM Studio not running:** `lsof -nP -iTCP:1234 -sTCP:LISTEN` exits 1 with no output.
+
+**Validation:** ✅ All commands run without sudo. Output format recorded for all three signals. Absent files and zero-match cases confirmed to degrade gracefully. lsof NAME field format confirmed for both running (loopback) and not-running cases.
+
+---
+
+### Step 24.2 — Write the AI security collector module
+
+Create `src/collectors/ai.py` with three functions:
+
+```
+check_ai_keys_shell_config()  → { name, description, status, raw, error }
+check_ai_keys_shell_history() → { name, description, status, raw, error }
+check_local_ai_server()       → { name, description, status, raw, error }
+```
+
+**Status logic:**
+
+| Collector | PASS | WARN | FAIL | UNKNOWN |
+|-----------|------|------|------|---------|
+| `check_ai_keys_shell_config` | None of the known AI key variable names appear in any shell config file | One or more key variable names found as an export or bare assignment | — | OSError reading all candidate files (individual absent/unreadable files are silently skipped) |
+| `check_ai_keys_shell_history` | No key-like value patterns match in any history file | One or more matches found in at least one file | — | All history files unreadable (absent files are PASS, not UNKNOWN) |
+| `check_local_ai_server` | No known AI server port has a listener, or all listeners are bound to loopback (`127.0.0.1` / `[::1]`) | — | Any known AI server port is bound to all interfaces (`*`, `0.0.0.0`) | `lsof` failed or exited with an unexpected non-zero code |
+
+**`raw` field content (privacy-preserving):**
+- `check_ai_keys_shell_config` PASS: `"No AI API key variables found in shell config files."`
+- `check_ai_keys_shell_config` WARN: one `"<filename>: <KEY_NAME>"` line per match — key names only, never values
+- `check_ai_keys_shell_history` PASS: `"No AI API key patterns found in shell history."`
+- `check_ai_keys_shell_history` WARN: `"~/.zsh_history: <N> pattern match(es)"` — counts only, never matched strings
+- `check_local_ai_server` PASS: `"No AI server listening on known ports (11434, 1234)."` or `"Ollama: 127.0.0.1:11434 (loopback only)."`
+- `check_local_ai_server` FAIL: `"Ollama: *:11434 (all interfaces — network-accessible)."` with the lsof NAME field
+
+**Implementation rules:**
+- `check_ai_keys_shell_config`: use `pathlib.Path` to read each file; `try/except OSError` per file (skip silently); for each line, `re.search(r'(?:export\s+)?(' + '|'.join(_KEY_NAMES) + r')\s*=', line)`; never store or log matched values
+- `check_ai_keys_shell_history`: use `pathlib.Path`; `zsh_history` entries use `: <ts>:<elapsed>;<command>` format — strip the `:<ts>:<elapsed>;` prefix before pattern-matching; count matches with `re.search` across the value patterns listed in the phase header; capture counts, not strings
+- `check_local_ai_server`: use `subprocess.run()` with `["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN"]` for each port in `_AI_PORTS = {11434: "Ollama", 1234: "LM Studio"}`; parse the NAME column from each output line; `*:` or `0.0.0.0:` in NAME → FAIL; `127.0.0.1:` or `[::1]:` → PASS contribution; no output → not running (PASS for that port); first FAIL across any port wins
+- All subprocess calls use `run_cmd_rc` / `_run()`; never `shell=True`
+- Any unhandled exception → UNKNOWN; never raise or crash
+
+Add a `__main__` block at the bottom.
+
+**Validation:** ✅ `.venv/bin/python src/collectors/ai.py` — all three functions return dicts with the correct keys; none raise an exception. Results on this machine:
+- Shell config: PASS (`No AI API key variables found in shell config files.`)
+- Shell history: PASS (`No AI API key patterns found in shell history.`)
+- Local AI server: PASS (`Ollama: 127.0.0.1:11434 (loopback only)`, LM Studio not running)
+
+WARN path smoke-tested by injecting a temp file with `export OPENAI_API_KEY=sk-...` — status=WARN, key name present in raw, key value absent from raw. History WARN path confirmed with a matching history line — raw shows `1 pattern match(es)`, no key value present.
+
+---
+
+### Step 24.3 — Register AI security collectors
+
+Update `src/collectors/__init__.py`:
+- Add `from .ai import check_ai_keys_shell_config, check_ai_keys_shell_history, check_local_ai_server`
+- Append all three to `_COLLECTORS`
+- Add `("AI Security", ["AI API Keys in Shell Config", "Shell History Key Exposure", "Local AI Server Exposure"])` to the `CATEGORIES` list
+
+No changes to `app.py` or the template.
+
+**Validation:** ✅ `run_all_collectors()` returns 22 results (19 existing always-on + 3 new). All three AI signals return PASS with correct raw output on this machine. All dicts contain the required keys.
+
+---
+
+### Step 24.4 — Add unit tests for the AI security collectors
+
+Add `tests/test_ai.py` following the existing test-file pattern (`mock_run_cmd_rc` fixture from `conftest.py`; `tmp_path` for filesystem tests).
+
+Tests to include:
+
+**`check_ai_keys_shell_config`:**
+- `test_shell_config_no_keys_pass` — all config files absent → PASS
+- `test_shell_config_key_found_warn` — config file contains `export OPENAI_API_KEY=sk-abc123` → WARN; assert `"sk-abc123"` is NOT in raw
+- `test_shell_config_key_name_in_raw` — WARN raw contains filename and `OPENAI_API_KEY` but not the value
+- `test_shell_config_non_key_export_pass` — file contains only `export PATH=/usr/local/bin` → PASS (false-positive guard)
+- `test_shell_config_multiple_files_warn` — keys found in two different files → WARN; both filenames appear in raw
+
+**`check_ai_keys_shell_history`:**
+- `test_history_no_matches_pass` — history file present but contains no key patterns → PASS
+- `test_history_file_absent_pass` — history file absent → PASS (not UNKNOWN)
+- `test_history_openai_pattern_warn` — history contains `echo sk-abc123456789012345678` → WARN; assert matched string is NOT in raw
+- `test_history_count_in_raw` — WARN raw shows a numeric count of matches
+
+**`check_local_ai_server`:**
+- `test_local_ai_server_not_running_pass` — lsof exits 1 with no output → PASS
+- `test_local_ai_server_loopback_pass` — lsof NAME column shows `127.0.0.1:11434` → PASS
+- `test_local_ai_server_all_interfaces_fail` — lsof NAME column shows `*:11434` → FAIL
+- `test_local_ai_server_lsof_error_unknown` — lsof command raises an exception → UNKNOWN
+
+**Validation:** ✅ `pytest tests/test_ai.py -v` — 19 tests, all pass. No real shell config or history files read; all filesystem access uses `tmp_path`. Full suite: 96 passed, no regressions.
+
+---
+
+### Step 24.5 — End-to-end dashboard check
+
+Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
+
+- Confirm the "AI Security" section appears with three cards under the correct heading.
+- Confirm badge colors match the actual machine state for each signal.
+- Inspect the raw output of the shell config and history cards — confirm no key values are visible.
+- If Ollama is installed: start it in another terminal, refresh the dashboard — Local AI Server Exposure should show FAIL. Stop Ollama, refresh — card returns to PASS.
+- Force one AI collector to fail (break its command temporarily); confirm it shows UNKNOWN and all other cards are unaffected; restore.
+
+**Validation:** ✅ All three AI security cards render correctly with live data. Raw output contains no key values. Network-exposure state change is reflected after a page reload. No regressions in any of the 19 existing signal cards. UNKNOWN renders cleanly — 22 total badges present with the broken collector; restored to PASS after fixing.
+
+---
+
+### Step 24.6 — Update README and documentation
+
+- Add signals under a new `### AI Security` heading in the Signals monitored section of `README.md`.
+- Add a Known Limitations entry noting that the shell config check covers only the listed key variable names — keys stored under non-standard names, in Keychain, in a password manager CLI, or in project-level `.env` files are not detected. Similarly, the history check covers specific key value patterns; obfuscated or base64-encoded keys are not detected.
+- Confirm `docs/cli_verification.md` has the Phase 24 section from Step 24.1.
+
+**Validation:** README accurately describes each new signal, its status logic, and its detection limitations. `docs/cli_verification.md` has the Phase 24 section.
+
+---
+
+### Phase 24 Integration Validation
+
+- [ ] `check_ai_keys_shell_config` returns WARN when a shell config file contains a known AI key variable name
+- [ ] `check_ai_keys_shell_config` returns PASS when no known AI key variable names are present
+- [ ] Raw output for `check_ai_keys_shell_config` WARN contains filenames and key variable names but never key values
+- [ ] `check_ai_keys_shell_history` returns WARN when a history file contains a key-like value pattern
+- [ ] `check_ai_keys_shell_history` returns PASS when history file is absent
+- [ ] Raw output for `check_ai_keys_shell_history` WARN shows match counts only, not the matched strings
+- [ ] `check_local_ai_server` returns FAIL when an AI server is bound to all interfaces
+- [ ] `check_local_ai_server` returns PASS when bound to loopback only or not running
+- [ ] All three new signals degrade to UNKNOWN gracefully when their data sources are unavailable — no crash, no 500
+- [ ] "AI Security" section appears correctly grouped in the dashboard under its category heading
+- [ ] All 19 existing signal cards render correctly — no regressions
+- [ ] No collector calls `sudo`
+- [ ] `pytest tests/test_ai.py` exits 0 — all tests pass
+- [ ] `docs/cli_verification.md` has the Phase 24 section with command output recorded
+- [ ] README `### AI Security` section accurately describes each signal and its detection limitations
+
+---
+
 ## Open Issues
 
 Issues identified after Phase 22. Each entry is classified as **Bug** (incorrect behavior), **Inconsistency** (code style/convention drift), or **Gap** (missing capability documented as a known limitation).

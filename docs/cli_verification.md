@@ -1142,3 +1142,115 @@ $ defaults write com.apple.sharingd DiscoverableMode -string "Off"
 r"su $(stat -f%Su /dev/console) -c 'defaults write com.apple.sharingd DiscoverableMode -string \"Contacts Only\"'"
 ```
 `applies_to = {"WARN"}` (button shown only when `DiscoverableMode == "Everyone"`).
+
+---
+
+## Phase 24 — AI Security
+
+Recorded during Phase 24, Step 24.1. Machine: macOS Apple Silicon (Mac15,9).
+
+---
+
+### Shell config files — existence and grep behavior
+
+**Files checked:**
+```zsh
+$ ls -la ~/.zshrc ~/.zprofile ~/.zshenv ~/.bashrc ~/.bash_profile ~/.profile 2>&1
+ls: /Users/scottrosenberg/.profile: No such file or directory
+ls: /Users/scottrosenberg/.zprofile: No such file or directory
+ls: /Users/scottrosenberg/.zshenv: No such file or directory
+-rwx------@ 1 scottrosenberg  staff  2654 May  7 07:01 /Users/scottrosenberg/.bash_profile
+-rwx------@ 1 scottrosenberg  staff   453 Oct 26  2025 /Users/scottrosenberg/.bashrc
+-rw-r--r--@ 1 scottrosenberg  staff   120 Oct 26  2025 /Users/scottrosenberg/.zshrc
+```
+
+**Files present on this machine:** `~/.zshrc`, `~/.bashrc`, `~/.bash_profile`
+**Files absent (silently skipped):** `~/.zprofile`, `~/.zshenv`, `~/.profile`
+
+**AI API key scan (no matches on this machine — PASS):**
+```zsh
+$ grep -n "OPENAI_API_KEY\|ANTHROPIC_API_KEY\|GEMINI_API_KEY" ~/.zshrc ~/.bashrc ~/.bash_profile 2>/dev/null
+(no output — exit code 1)
+```
+
+**grep exit code behavior (verified via Python subprocess):**
+- Key name found in file: `rc=0`, stdout contains `<lineno>:<matching line>`
+- Key name not found in file: `rc=1`, stdout empty
+- File does not exist: `rc=2`, stderr contains error message
+
+**Decision:** Use `pathlib.Path.read_text()` per file rather than subprocess grep. This avoids rc=2 vs rc=1 ambiguity for absent files and keeps key values out of any subprocess arguments. Absent files → skip silently. OSError on a file → skip that file, log to error only if ALL files fail to read.
+
+---
+
+### Shell history — format and grep behavior
+
+**`~/.zsh_history` (plain format, no extended history prefix):**
+```zsh
+$ python3 -c "
+import pathlib
+lines = pathlib.Path('~/.zsh_history').expanduser().read_text(errors='replace').splitlines()
+print(f'lines: {len(lines)}')
+print('sample:', repr(lines[0]))
+"
+lines: 24
+sample: 'pwd'
+```
+
+Format: plain commands, no `: <timestamp>:<elapsed>;` prefix. `EXTENDED_HISTORY` is not set in `~/.zshrc`. The parser must handle both plain format and extended format (`: ts:elapsed;cmd`) since users may have `setopt EXTENDED_HISTORY` in their config.
+
+**`~/.bash_history` (plain format):**
+```zsh
+lines: 500
+sample: "'cd ~'"
+```
+
+**Key pattern scan (no matches on this machine — PASS):**
+```python
+patterns: sk-[a-zA-Z0-9]{20,}, sk-ant-api[0-9]{2}-, AIza[0-9A-Za-z_-]{35}
+result: 0 matches in ~/.zsh_history, 0 matches in ~/.bash_history
+```
+
+**`grep -c` exit code on 0 matches:**
+```zsh
+$ grep -c "sk-" ~/.bash_history
+0
+exit code: 1   # grep exits 1 when count is 0 — do NOT use subprocess grep for this
+```
+
+**Decision:** Use `pathlib.Path.read_text()` + `re.search()` directly in Python. Strip extended-history prefix (`re.sub(r'^: \d+:\d+;', '', line)`) before pattern matching. Absent history files are PASS (not UNKNOWN) — many machines have only one shell history file.
+
+---
+
+### Local AI server exposure — lsof
+
+**Ollama (port 11434) — running on this machine, loopback only (PASS):**
+```zsh
+$ lsof -nP -iTCP:11434 -sTCP:LISTEN
+COMMAND   PID           USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+ollama  34038 scottrosenberg    3u  IPv4 0xc1cfaaa25945ea5c      0t0  TCP 127.0.0.1:11434 (LISTEN)
+rc=0
+```
+
+NAME column format for loopback: `127.0.0.1:11434` — contains `127.0.0.1:`.
+
+**LM Studio (port 1234) — not running:**
+```zsh
+$ lsof -nP -iTCP:1234 -sTCP:LISTEN
+(no output)
+rc=1
+```
+
+Exit code 1 with no output = no process listening on that port. This is PASS for that port.
+
+**All-interfaces NAME format (from Phase 7 / network collector verification):**
+When a process is bound to all interfaces, the NAME column reads `*:11434` (not `0.0.0.0:11434`). This is confirmed by the existing `check_listening_ports()` parser in `src/collectors/network.py` which uses `ln.split()[-2].startswith("*:")` as the all-interfaces test.
+
+**Decision:**
+- `rc=0`, NAME contains `127.0.0.1:` or `[::1]:` → PASS (loopback-only)
+- `rc=0`, NAME contains `*:` → FAIL (all interfaces)
+- `rc=1` (no output) → not running → PASS for that port
+- Command exception or unexpected `rc` → UNKNOWN
+
+Check both ports per collector call. First FAIL across either port wins the overall status.
+
+**Ollama installation confirmed:** `/opt/homebrew/bin/ollama` present. Default binding is loopback (`127.0.0.1:11434`), which is the secure default. Users who set `OLLAMA_HOST=0.0.0.0` will see FAIL.

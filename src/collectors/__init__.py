@@ -35,6 +35,11 @@ from .hygiene import (
     check_root_certificates,
     check_screen_lock,
 )
+from .ai import (
+    check_ai_keys_shell_config,
+    check_ai_keys_shell_history,
+    check_local_ai_server,
+)
 from .external import check_macos_version
 
 CATEGORIES: list[tuple[str, list[str]]] = [
@@ -44,6 +49,7 @@ CATEGORIES: list[tuple[str, list[str]]] = [
     ("Authentication", ["Failed Logins", "SSH Authorized Keys"]),
     ("Sharing & Remote Access", ["Remote Login (SSH)", "Screen Sharing / Remote Management", "AirDrop Receiver Mode"]),
     ("Software Hygiene", ["Automatic Updates", "Root Certificate Trust", "Screen Lock"]),
+    ("AI Security", ["AI API Keys in Shell Config", "Shell History Key Exposure", "Local AI Server Exposure"]),
 ]
 
 # Always-on signals — run on every page load regardless of env var settings.
@@ -68,6 +74,9 @@ _COLLECTORS = [
     check_auto_updates,
     check_root_certificates,
     check_screen_lock,
+    check_ai_keys_shell_config,
+    check_ai_keys_shell_history,
+    check_local_ai_server,
 ]
 
 # Opt-in signals — only run when EXTERNAL_CALLS=1 is set in the environment.
