@@ -3247,21 +3247,21 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
 ### Phase 24 Integration Validation
 
-- [ ] `check_ai_keys_shell_config` returns WARN when a shell config file contains a known AI key variable name
-- [ ] `check_ai_keys_shell_config` returns PASS when no known AI key variable names are present
-- [ ] Raw output for `check_ai_keys_shell_config` WARN contains filenames and key variable names but never key values
-- [ ] `check_ai_keys_shell_history` returns WARN when a history file contains a key-like value pattern
-- [ ] `check_ai_keys_shell_history` returns PASS when history file is absent
-- [ ] Raw output for `check_ai_keys_shell_history` WARN shows match counts only, not the matched strings
-- [ ] `check_local_ai_server` returns FAIL when an AI server is bound to all interfaces
-- [ ] `check_local_ai_server` returns PASS when bound to loopback only or not running
-- [ ] All three new signals degrade to UNKNOWN gracefully when their data sources are unavailable — no crash, no 500
-- [ ] "AI Security" section appears correctly grouped in the dashboard under its category heading
-- [ ] All 19 existing signal cards render correctly — no regressions
-- [ ] No collector calls `sudo`
-- [ ] `pytest tests/test_ai.py` exits 0 — all tests pass
-- [ ] `docs/cli_verification.md` has the Phase 24 section with command output recorded
-- [ ] README `### AI Security` section accurately describes each signal and its detection limitations
+- [x] `check_ai_keys_shell_config` returns WARN when a shell config file contains a known AI key variable name
+- [x] `check_ai_keys_shell_config` returns PASS when no known AI key variable names are present
+- [x] Raw output for `check_ai_keys_shell_config` WARN contains filenames and key variable names but never key values
+- [x] `check_ai_keys_shell_history` returns WARN when a history file contains a key-like value pattern
+- [x] `check_ai_keys_shell_history` returns PASS when history file is absent
+- [x] Raw output for `check_ai_keys_shell_history` WARN shows match counts only, not the matched strings
+- [x] `check_local_ai_server` returns FAIL when an AI server is bound to all interfaces
+- [x] `check_local_ai_server` returns PASS when bound to loopback only or not running
+- [x] All three new signals degrade to UNKNOWN gracefully when their data sources are unavailable — no crash, no 500
+- [x] "AI Security" section appears correctly grouped in the dashboard under its category heading
+- [x] All 19 existing signal cards render correctly — no regressions
+- [x] No collector calls `sudo`
+- [x] `pytest tests/test_ai.py` exits 0 — all tests pass
+- [x] `docs/cli_verification.md` has the Phase 24 section with command output recorded
+- [x] README `### AI Security` section accurately describes each signal and its detection limitations
 
 ---
 
