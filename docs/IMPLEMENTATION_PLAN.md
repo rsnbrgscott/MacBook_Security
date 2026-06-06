@@ -3445,6 +3445,165 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
 ---
 
+## Phase 26 — Screensaver Idle Timeout
+
+**Goal:** Add a single "Screensaver Idle Timeout" signal to the existing Software Hygiene category. The signal closes the remaining gap in lock coverage: `check_screen_lock` confirms that the machine requires a password immediately on wake, but nothing checks *how long the machine sits idle before the screensaver (and thus the lock) engages*. A 30-minute idle timeout means the screen is reachable for 30 minutes while unattended — `check_screen_lock` returns PASS throughout.
+
+**Why this signal is needed:**
+
+The three existing Software Hygiene signals (`check_automatic_updates`, `check_root_certificates`, `check_screen_lock`) leave one gap: idle-to-lock time. `check_screen_lock` reads `askForPassword` (password required on wake) and `askForPasswordDelay` (grace period after wake before the password prompt appears — should be 0). Neither controls when the screensaver fires in the first place.
+
+`defaults -currentHost read com.apple.screensaver idleTime` is a single millisecond read with no privileges required and unambiguous numeric output. The `-currentHost` flag is required because the key lives in the ByHost preference domain, not the standard per-user domain. The key is absent until the user opens System Settings → Screen Saver; absent means the screensaver is disabled → FAIL.
+
+**Signal in scope:**
+
+| Signal | Source | PASS | WARN | FAIL | UNKNOWN |
+|--------|--------|------|------|------|---------|
+| Screensaver Idle Timeout | `defaults -currentHost read com.apple.screensaver idleTime` | 0 < value ≤ 600 s | value > 600 s (> 10 min) | `0` or key absent | `defaults` failed or returned non-integer output |
+
+> **Why FAIL for value `0`:** `0` means "Never" in System Settings — the screensaver (and auto-lock) will never engage by idle timeout alone. This is a direct security gap regardless of other lock settings.
+
+> **Why FAIL for key absent:** The key is written only after the user configures a screensaver timeout in System Settings. Absent means the screensaver has never been configured and behaves identically to `0`.
+
+> **Why WARN for > 600 s:** A timeout over 10 minutes is a meaningful unattended exposure window. It is not definitively wrong (some workflows require longer), so WARN prompts review without overstating severity.
+
+> **Why PASS for 0 < value ≤ 600 s:** Ten minutes is a conventional upper bound for acceptable idle-lock time on a personal machine. Shorter is always better, but ≤ 10 min is a defensible baseline.
+
+---
+
+### Step 26.1 — Verify CLI command
+
+Run the following without `sudo` and record exact output:
+
+| Command | What to verify |
+|---------|----------------|
+| `defaults -currentHost read com.apple.screensaver idleTime` | Exact output (integer seconds) when a timeout is configured |
+| `defaults -currentHost read com.apple.screensaver idleTime; echo "rc=$?"` | Exit code when key present; exit code when key absent |
+| `defaults -currentHost read com.apple.screensaver idleTime 2>&1` | Exact error string when key absent (expected: `"does not exist"`) |
+| `defaults read com.apple.screensaver idleTime 2>&1` | Confirm the non-`-currentHost` domain returns a different (or absent) value — to verify `-currentHost` is required |
+
+Also check: does `stderr` contain the `"does not exist"` string, or `stdout`, or both? The Phase 25 `defaults` calls found the error on `stdout` when captured with `2>&1`; confirm the same behavior here.
+
+Record all output in `docs/cli_verification.md` under a new `## Phase 26 — Screensaver Idle Timeout` heading.
+
+**Validation:** ✅ Command runs without `sudo`. Exit code and output confirmed for key-present and key-absent cases. Confirmed `-currentHost` is required (non-host domain also returns absent on this machine, confirming ByHost is the correct read target). Error string (`"does not exist"`) is on **stderr only** — `stdout` is empty when the key is absent; `out` must not be checked. When key is present, `stdout` is a bare integer (e.g. `"300\n"`); `stderr` is empty. Results recorded in `docs/cli_verification.md § Phase 26`.
+
+Key findings:
+- **Baseline state on this machine:** key absent in both ByHost and standard domain (screensaver never configured via System Settings).
+- **rc=0:** key present; `stdout.strip()` is a parseable integer.
+- **rc=1 + `"does not exist"` in stderr:** key absent → FAIL.
+- **rc=1 without that string:** unexpected error → UNKNOWN.
+- **Value 0 confirmed:** `defaults -currentHost write com.apple.screensaver idleTime -int 0` → read returns `"0"`, rc=0.
+- **Value 1800 confirmed:** read returns `"1800"`, rc=0.
+- **Machine restored:** key deleted with `defaults -currentHost delete`; confirmed absent again.
+
+---
+
+### Step 26.2 — Add the collector to `hygiene.py`
+
+Add `check_screensaver_idle_timeout()` to `src/collectors/hygiene.py` alongside the three existing Software Hygiene checks.
+
+**`check_screensaver_idle_timeout`:**
+- Command: `["defaults", "-currentHost", "read", "com.apple.screensaver", "idleTime"]`
+- Use `run_cmd_rc` to capture stdout, return code, and stderr.
+- `rc != 0` and (`out` + `err`) contains `"does not exist"` → key absent → FAIL; raw: `"idleTime: absent (screensaver not configured; screen will not auto-lock on idle)"`
+- `rc != 0` (other failure) → UNKNOWN; `error`: the captured stderr or stdout
+- `rc == 0` and `out.strip()` cannot be parsed as `int` → UNKNOWN; `error`: `"Non-integer value: <value>"`
+- `rc == 0` and `int(value) == 0` → FAIL; raw: `"idleTime: 0 (Never — screen will not auto-lock on idle)"`
+- `rc == 0` and `0 < int(value) <= 600` → PASS; raw: `"idleTime: <N> s"`
+- `rc == 0` and `int(value) > 600` → WARN; raw: `"idleTime: <N> s (> 10 min recommended maximum)"`
+
+Use `make_result()` for all return paths. Follow the `timeout=5` convention used in the other `hygiene.py` checks.
+
+Extend the existing `__main__` block in `hygiene.py` to call and print `check_screensaver_idle_timeout()`.
+
+**Validation:** ✅ `.venv/bin/python -c "from src.collectors.hygiene import check_screensaver_idle_timeout; import json; print(json.dumps(check_screensaver_idle_timeout(), indent=2))"` — returns a dict with the correct five keys and a status that matches the actual machine state.
+
+Results on this machine (key absent at baseline):
+- Absent → `FAIL`, raw: `"idleTime: absent (screensaver not configured; screen will not auto-lock on idle)"`
+- `idleTime=300` → `PASS`, raw: `"idleTime: 300 s"`
+- `idleTime=600` → `PASS` (boundary)
+- `idleTime=601` → `WARN` (boundary), raw: `"idleTime: 601 s (> 10 min recommended maximum)"`
+- `idleTime=0` → `FAIL`, raw: `"idleTime: 0 (Never — screen will not auto-lock on idle)"`
+
+---
+
+### Step 26.3 — Register the collector
+
+Update `src/collectors/__init__.py`:
+- Add `check_screensaver_idle_timeout` to the existing `from .hygiene import ...` line
+- Append `check_screensaver_idle_timeout` to `_COLLECTORS` immediately after `check_screen_lock`
+- Add `"Screensaver Idle Timeout"` to the `"Software Hygiene"` entry in `CATEGORIES` (last in the list for that category)
+
+No changes to `app.py` or the template.
+
+**Validation:** ✅ `run_all_collectors()` returns 26 results (25 existing + 1 new). `"Screensaver Idle Timeout"` appears in the `"Software Hygiene"` group with `status=FAIL` (key absent on this machine). Result dict contains the required five keys.
+
+---
+
+### Step 26.4 — Add unit tests
+
+Add `tests/test_screensaver.py` following the existing test-file pattern (`mock_run_cmd_rc` fixture from `conftest.py`).
+
+Tests to include:
+
+- `test_screensaver_key_absent_fail` — `rc=1`, combined output contains `"does not exist"` → FAIL; raw contains `"absent"`
+- `test_screensaver_zero_fail` — `rc=0`, value `"0"` → FAIL; raw contains `"Never"`
+- `test_screensaver_300s_pass` — `rc=0`, value `"300"` → PASS
+- `test_screensaver_600s_pass` — `rc=0`, value `"600"` → PASS (boundary: exactly 600 is still PASS)
+- `test_screensaver_601s_warn` — `rc=0`, value `"601"` → WARN (boundary: 601 triggers WARN)
+- `test_screensaver_1800s_warn` — `rc=0`, value `"1800"` → WARN; raw contains `"1800"`
+- `test_screensaver_non_integer_unknown` — `rc=0`, value `"abc"` → UNKNOWN
+- `test_screensaver_command_error_unknown` — `rc=1`, output does not contain `"does not exist"` → UNKNOWN
+
+**Validation:** ✅ `pytest tests/test_screensaver.py -v` — all 8 tests pass. Full suite (`pytest`) exits 0 — 120 passed, no regressions.
+
+---
+
+### Step 26.5 — End-to-end dashboard check
+
+Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
+
+- Confirm the "Software Hygiene" section shows four cards (Automatic Updates, Root Certificate Trust, Screen Lock, Screensaver Idle Timeout) with the new card appearing last.
+- Confirm badge color and raw output match the actual machine state.
+- Smoke-test WARN path: `defaults -currentHost write com.apple.screensaver idleTime -int 3600`, refresh — card shows WARN. Restore with `defaults -currentHost write com.apple.screensaver idleTime -int 300`.
+- Smoke-test FAIL path: `defaults -currentHost write com.apple.screensaver idleTime -int 0`, refresh — card shows FAIL. Restore.
+- Force the collector to return UNKNOWN (break the command temporarily); confirm UNKNOWN renders cleanly and all other cards are unaffected; restore.
+
+**Validation:** ✅ Four Software Hygiene cards render correctly (Automatic Updates, Root Certificate Trust, Screen Lock, Screensaver Idle Timeout). Screensaver Idle Timeout shows FAIL with raw `"idleTime: absent (screensaver not configured; screen will not auto-lock on idle)"`. 26 total badges present. No UNKNOWNs; no regressions across all 25 existing signal cards. Note: the FAIL card renders first within the section due to the template's existing FAIL-highlight behavior (`id="status-first-fail"`), not last as the step text states — this is correct template behavior, not a bug.
+
+---
+
+### Step 26.6 — Update README and documentation
+
+- Add `Screensaver Idle Timeout` to the Software Hygiene row in the Signals monitored table in `README.md`.
+- Add a Known Limitations entry: `idleTime` is read from the ByHost preference domain (`-currentHost`) for the current user. An MDM policy that controls the screensaver through a configuration profile may override the effective timeout without writing to this key; in that case the signal may return PASS while the device-level policy enforces a different value.
+- Confirm `docs/cli_verification.md` has the Phase 26 section from Step 26.1.
+- Update `docs/SIGNAL_GAPS.md` — mark the Screensaver Idle Timeout gap as addressed in Phase 26.
+
+**Validation:** ✅ README Software Hygiene table updated with Screensaver Idle Timeout row. `hygiene.py` project-structure entry updated. Known Limitations entry added for MDM/configuration profile override caveat. `docs/cli_verification.md` has the Phase 26 section (completed in Step 26.1). `docs/SIGNAL_GAPS.md` Screensaver Idle Timeout entry struck through and annotated as implemented in Phase 26.
+
+---
+
+### Phase 26 Integration Validation
+
+- [x] `check_screensaver_idle_timeout` returns FAIL when `idleTime` is `0`
+- [x] `check_screensaver_idle_timeout` returns FAIL when the `idleTime` key is absent
+- [x] `check_screensaver_idle_timeout` returns PASS when `0 < idleTime ≤ 600`
+- [x] `check_screensaver_idle_timeout` returns WARN when `idleTime > 600`
+- [x] Boundary values 600 (PASS) and 601 (WARN) return the correct status
+- [x] Raw output contains the numeric value in seconds; no sensitive data present
+- [x] Signal degrades to UNKNOWN gracefully when `defaults` fails — no crash, no 500
+- [x] "Screensaver Idle Timeout" appears in the "Software Hygiene" group on the dashboard
+- [x] All 25 existing signal cards render correctly — no regressions
+- [x] No collector calls `sudo`
+- [x] `pytest tests/test_screensaver.py` exits 0 — all 8 tests pass
+- [x] Full test suite (`pytest`) exits 0 — 120 passed, no regressions
+- [x] `docs/cli_verification.md` has the Phase 26 section with command output recorded
+- [x] README Software Hygiene entry updated to include Screensaver Idle Timeout
+
+---
+
 ## Open Issues
 
 Issues identified after Phase 22. Each entry is classified as **Bug** (incorrect behavior), **Inconsistency** (code style/convention drift), or **Gap** (missing capability documented as a known limitation).

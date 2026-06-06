@@ -1,4 +1,4 @@
-"""Software hygiene signal collectors: Automatic Updates, Root Certificate Trust, Screen Lock.
+"""Software hygiene signal collectors: Automatic Updates, Root Certificate Trust, Screen Lock, Screensaver Idle Timeout.
 
 Detection uses defaults(1), security(1), and osascript for System Events.
 No sudo required.
@@ -180,11 +180,50 @@ def check_screen_lock() -> dict:
     )
 
 
+def check_screensaver_idle_timeout() -> dict:
+    """FAIL if screensaver idle timeout is 0 or absent; WARN if > 10 min; PASS if 0 < value ≤ 600 s."""
+    name = "Screensaver Idle Timeout"
+    desc = (
+        "How long the machine must be idle before the screensaver engages and locks "
+        "the screen. A long timeout leaves the screen accessible while unattended even "
+        "if lock-on-wake is configured correctly."
+    )
+    out, rc, err = run_cmd_rc(
+        ["defaults", "-currentHost", "read", "com.apple.screensaver", "idleTime"],
+        timeout=5,
+    )
+    if err:
+        return make_result(name, desc, "UNKNOWN", "", err)
+    if rc != 0 and "does not exist" in out:
+        return make_result(
+            name, desc, "FAIL",
+            "idleTime: absent (screensaver not configured; screen will not auto-lock on idle)",
+        )
+    if rc != 0:
+        return make_result(name, desc, "UNKNOWN", out, f"defaults exited {rc}")
+    try:
+        seconds = int(out)
+    except ValueError:
+        return make_result(name, desc, "UNKNOWN", out, f"Non-integer value: {out!r}")
+    if seconds == 0:
+        return make_result(
+            name, desc, "FAIL",
+            "idleTime: 0 (Never — screen will not auto-lock on idle)",
+        )
+    if seconds > 600:
+        return make_result(
+            name, desc, "WARN",
+            f"idleTime: {seconds} s (> 10 min recommended maximum)",
+        )
+    return make_result(name, desc, "PASS", f"idleTime: {seconds} s")
+
+
 if __name__ == "__main__":
     checks = [
         ("Automatic Updates", check_auto_updates),
         ("Root Certificate Trust", check_root_certificates),
         ("Screen Lock", check_screen_lock),
+        ("Screensaver Idle Timeout", check_screensaver_idle_timeout),
     ]
     for label, fn in checks:
         sig = fn()

@@ -54,6 +54,14 @@ This means the signal cannot detect a situation where Apple changes its default 
 
 `check_screen_lock` uses `osascript` to query `System Events` for the `require password to wake` property. If Automation access to System Events is revoked in **System Settings → Privacy & Security → Automation**, this collector returns UNKNOWN rather than the actual lock state.
 
+### Screensaver Idle Timeout — MDM/configuration profile override not detected
+
+`check_screensaver_idle_timeout` reads `idleTime` from the ByHost preference domain (`defaults -currentHost read com.apple.screensaver idleTime`). This is the key written by System Settings when the user manually configures a screensaver timeout.
+
+An MDM configuration profile that enforces the screensaver timeout through a managed preference writes to the Managed preference domain rather than the ByHost domain and may not update the ByHost key. In that case the signal may return FAIL or WARN while the device-level policy enforces a stricter timeout.
+
+**Path to resolve:** Read the managed preference domain (`defaults read /Library/Managed\ Preferences/com.apple.screensaver idleTime`) as a fallback; if a managed value is present, prefer it. Requires testing in a managed environment.
+
 ### Admin Group Members — fixed system account filter list
 
 `check_admin_group_members` filters a hardcoded set of known system accounts (`root`, `_mbsetupuser`, `_uucp`, `_networkd`) before comparing the remaining members to the current user. If a future macOS version introduces a new system account not in this list, it would appear as a human member and produce a false WARN.

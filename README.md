@@ -92,6 +92,7 @@ WARN on authentication signals means activity was detected — review if unexpec
 | **Automatic Updates** | `defaults read /Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled` and `CriticalUpdateInstall` | FAIL if auto-check is explicitly disabled; WARN if auto-check is on but critical/security updates are not set to install automatically; PASS if both are on (or at macOS defaults, which are secure). |
 | **Root Certificate Trust** | `security dump-trust-settings -d` | Checks for custom CA certificates added to the system-domain trust store. A rogue CA can silently intercept HTTPS traffic. PASS when no non-Apple trust overrides are present; WARN if any custom anchor is found — review the listed certificate names. |
 | **Screen Lock** | `osascript` / System Events security preferences; `defaults -currentHost read com.apple.screensaver askForPasswordDelay` | FAIL if no password is required on wake. WARN if a password is required but a grace period (delay > 0) is set, meaning the screen can be unlocked for a window after waking. PASS if password is required immediately. |
+| **Screensaver Idle Timeout** | `defaults -currentHost read com.apple.screensaver idleTime` | How long the machine must be idle before the screensaver (and thus the lock screen) engages. FAIL if set to Never (`0`) or the key is absent (screensaver never configured). WARN if the timeout exceeds 10 minutes. PASS if between 1 and 600 seconds. Complements Screen Lock — a correctly configured lock-on-wake is irrelevant if the screensaver never fires. |
 
 ### AI Security
 
@@ -157,7 +158,7 @@ MacBook_Security/
 │   │   ├── auth.py              # Failed Logins, SSH Authorized Keys
 │   │   ├── accounts.py          # Guest Account, Login Window Display, Admin Group Members
 │   │   ├── sharing.py           # Remote Login, Screen Sharing, AirDrop
-│   │   ├── hygiene.py           # Automatic Updates, Root Certificate Trust, Screen Lock
+│   │   ├── hygiene.py           # Automatic Updates, Root Certificate Trust, Screen Lock, Screensaver Idle Timeout
 │   │   ├── ai.py                # AI API Keys in Shell Config, Shell History Key Exposure, Local AI Server Exposure
 │   │   └── external.py          # macOS Version (opt-in, requires EXTERNAL_CALLS=1)
 │   ├── alerting/

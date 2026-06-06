@@ -1345,3 +1345,115 @@ Matches the username in the `GroupMembership` output character-for-character. Us
 - `len(human_members) > 1` → WARN with full list
 - `human_members == []` → UNKNOWN (unexpected format)
 - `rc != 0` → UNKNOWN
+
+---
+
+## Phase 26 — Screensaver Idle Timeout
+
+### Command verification
+
+**Key-absent case (baseline machine state — screensaver never configured):**
+
+```
+$ defaults -currentHost read com.apple.screensaver idleTime; echo "rc=$?"
+2026-06-06 16:46:33.677 defaults[40168:7917568]
+The domain/default pair of (com.apple.screensaver, idleTime) does not exist
+rc=1
+```
+
+**stdout vs stderr when key is absent:**
+
+```
+$ stdout=$(defaults -currentHost read com.apple.screensaver idleTime 2>/dev/null); echo "stdout='$stdout'"
+stdout=''
+
+$ stderr=$(defaults -currentHost read com.apple.screensaver idleTime 2>&1 1>/dev/null); echo "stderr='$stderr'"
+stderr='2026-06-06 16:46:39.838 defaults[40257:7917963]
+The domain/default pair of (com.apple.screensaver, idleTime) does not exist'
+```
+
+**Finding:** When the key is absent, `stdout` is empty and the `"does not exist"` message is on **stderr** only. The implementation must check `err` (not `out`) for this string.
+
+---
+
+**Key-present case (idleTime = 300 s):**
+
+```
+$ defaults -currentHost write com.apple.screensaver idleTime -int 300
+$ defaults -currentHost read com.apple.screensaver idleTime; echo "rc=$?"
+300
+rc=0
+```
+
+stdout is the bare integer with no trailing whitespace beyond the newline. stderr is empty.
+
+---
+
+**Value 0 (Never):**
+
+```
+$ defaults -currentHost write com.apple.screensaver idleTime -int 0
+$ defaults -currentHost read com.apple.screensaver idleTime; echo "rc=$?"
+0
+rc=0
+```
+
+---
+
+**Value 1800 (30 min):**
+
+```
+$ defaults -currentHost write com.apple.screensaver idleTime -int 1800
+$ defaults -currentHost read com.apple.screensaver idleTime; echo "rc=$?"
+1800
+rc=0
+```
+
+---
+
+**Non-`-currentHost` domain:**
+
+```
+$ defaults read com.apple.screensaver idleTime 2>&1; echo "rc=$?"
+2026-06-06 16:46:34.992 defaults[40172:7917608]
+The domain/default pair of (com.apple.screensaver, idleTime) does not exist
+rc=1
+```
+
+The standard per-user domain also returns absent. The `-currentHost` ByHost domain is the authoritative location for this key; both domains must be checked to determine where System Settings writes the value, and the ByHost domain is correct.
+
+---
+
+**Restore — delete the test key:**
+
+```
+$ defaults -currentHost delete com.apple.screensaver idleTime; echo "rc=$?"
+rc=0
+$ defaults -currentHost read com.apple.screensaver idleTime 2>&1; echo "rc=$?"
+2026-06-06 16:47:00.255 defaults[40432:7919078]
+The domain/default pair of (com.apple.screensaver, idleTime) does not exist
+rc=1
+```
+
+Machine restored to baseline (key absent).
+
+---
+
+### Implementation decisions
+
+- **`-currentHost` is required.** The key lives in the ByHost preference domain. The standard domain also returns absent on this machine, confirming ByHost is the correct read target.
+- **Error string is on stderr, not stdout.** Check `err` for `"does not exist"` when `rc != 0`.
+- **stdout is a bare integer string** (e.g. `"300\n"`) when the key is present. `out.strip()` → `int()` is safe.
+- **rc=0 always means a valid integer value was returned** — no other non-integer output observed.
+- **rc=1 with "does not exist" in stderr → key absent → FAIL** (screensaver not configured).
+- **rc=1 without "does not exist" → unexpected error → UNKNOWN.**
+
+**Status thresholds confirmed:**
+
+| Condition | Status |
+|-----------|--------|
+| Key absent (`rc=1`, `"does not exist"` in stderr) | FAIL |
+| `int(value) == 0` | FAIL |
+| `0 < int(value) <= 600` | PASS |
+| `int(value) > 600` | WARN |
+| `rc != 0` and error not "does not exist", or non-integer output | UNKNOWN |

@@ -12,11 +12,9 @@ Guest Account, Login Window Display, and Admin Group Members implemented in `src
 
 ---
 
-### Screensaver Idle Timeout *(add to Software Hygiene)*
+### ~~Screensaver Idle Timeout~~ *(implemented — Phase 26)*
 
-- Command: `defaults -currentHost read com.apple.screensaver idleTime`
-- Logic: `0` (never) → FAIL; `> 600` (more than 10 min) → WARN; `<= 600` and `> 0` → PASS
-- Notes: `check_screen_lock` already verifies that a password is required and that the delay after wake is 0, but never checks how long until the screensaver engages. A machine with a 30-minute idle timeout is effectively unprotected for that window even if the lock-on-wake settings are correct. Key absent = screensaver disabled → FAIL.
+Implemented in `src/collectors/hygiene.py` as `check_screensaver_idle_timeout`. Added to the Software Hygiene category. See Phase 26 in `docs/IMPLEMENTATION_PLAN.md`.
 
 ---
 

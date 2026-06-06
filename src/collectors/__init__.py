@@ -34,6 +34,7 @@ from .hygiene import (
     check_auto_updates,
     check_root_certificates,
     check_screen_lock,
+    check_screensaver_idle_timeout,
 )
 from .accounts import (
     check_guest_account,
@@ -54,7 +55,7 @@ CATEGORIES: list[tuple[str, list[str]]] = [
     ("Authentication", ["Failed Logins", "SSH Authorized Keys"]),
     ("User Accounts", ["Guest Account", "Login Window Display", "Admin Group Members"]),
     ("Sharing & Remote Access", ["Remote Login (SSH)", "Screen Sharing / Remote Management", "AirDrop Receiver Mode"]),
-    ("Software Hygiene", ["Automatic Updates", "Root Certificate Trust", "Screen Lock"]),
+    ("Software Hygiene", ["Automatic Updates", "Root Certificate Trust", "Screen Lock", "Screensaver Idle Timeout"]),
     ("AI Security", ["AI API Keys in Shell Config", "Shell History Key Exposure", "Local AI Server Exposure"]),
 ]
 
@@ -83,6 +84,7 @@ _COLLECTORS = [
     check_auto_updates,
     check_root_certificates,
     check_screen_lock,
+    check_screensaver_idle_timeout,
     check_ai_keys_shell_config,
     check_ai_keys_shell_history,
     check_local_ai_server,
