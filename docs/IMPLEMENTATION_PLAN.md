@@ -3265,6 +3265,186 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
 ---
 
+## Phase 25 — User Account Signals
+
+**Goal:** Add a new "User Accounts" category with three signals that expose account-level risks that no existing category covers: an enabled guest account, admin privileges held by unexpected users, and a login window that reveals account names. All three signals are single-command reads with no `sudo` requirement and negligible latency.
+
+**Why this category is needed:**
+
+The dashboard currently monitors what software is running and how the network is configured, but it has no visibility into *who can log in* or *with what privileges*. User account hygiene is a foundational layer of macOS security:
+
+- **Unexpected admin accounts** are the most common persistence mechanism after a compromise. An attacker who creates or elevates a user account retains access even if the initial exploit is patched. There is no existing signal that enumerates admin group membership, so a rogue admin account would go completely undetected.
+
+- **The guest account** allows anyone with physical access to use the machine under a session that is not attributed to any named user. macOS erases the guest home directory on logout, making forensic investigation difficult. On a personally-owned machine there is rarely a reason to leave the guest account enabled, and it is off by default — so a FAIL here reliably indicates a deliberate or accidental configuration change.
+
+- **The login window user list** is a minor but real information-disclosure risk: displaying the list of local accounts to anyone who reaches the login screen reveals valid usernames that can be used in targeted password attacks, phishing, or social engineering. Switching the login window to a name-and-password prompt (the more secure default on managed Macs) eliminates this exposure.
+
+These three checks share a common property: they are each a single `defaults read` or `dscl` call, return in milliseconds, require no elevated privileges, and have unambiguous pass/fail semantics. The implementation effort is low relative to the security value.
+
+**Signals in scope:**
+
+| Signal | Source | PASS | WARN | FAIL | UNKNOWN |
+|--------|--------|------|------|------|---------|
+| Guest Account | `defaults read /Library/Preferences/com.apple.loginwindow GuestEnabled` | `0` or key absent | — | `1` (enabled) | `defaults` command failed |
+| Login Window Display | `defaults read /Library/Preferences/com.apple.loginwindow SHOWFULLNAME` | `1` (name+password) or key absent | `0` (user list shown) | — | `defaults` command failed |
+| Admin Group Members | `dscl . read /Groups/admin GroupMembership` | single admin user (current user only) | multiple admin users listed | — | `dscl` command failed |
+
+> **Why FAIL for Guest Account:** The guest account is off by default on macOS. A value of `1` means it was explicitly enabled (or re-enabled by a software change). Physical access to a guest session is a meaningful risk on a personal machine. There is no defensive reason to leave it enabled if it is not actively used.
+
+> **Why WARN (not FAIL) for Login Window Display:** Showing the user list is the macOS default on non-managed machines and is not itself a breach — it is an information-disclosure risk. Many users have never changed this setting and the risk depends on context (home machine vs. office). WARN prompts review without overstating the severity.
+
+> **Why WARN for Admin Group Members:** The presence of multiple admin accounts is not automatically wrong — a developer may have a separate admin account by design, or an MDM may have provisioned one. The signal cannot distinguish legitimate from rogue accounts. WARN with the full member list lets the user make the judgment call. A machine with only the current user in the admin group returns PASS.
+
+> **Key absent semantics:** For Guest Account, key absent means the macOS default (off) applies → PASS. For Login Window Display, key absent means the system default (user list visible) applies on unmanaged Macs → WARN, matching the live behavior. This differs from the auto-updates and screen lock signals where absence means the secure default is active; here, the default is the less secure option on personal machines.
+
+---
+
+### Step 25.1 — Verify CLI commands
+
+Run each candidate command without `sudo` and record the exact output for both the match and no-match cases:
+
+| Command | What to verify |
+|---------|----------------|
+| `defaults read /Library/Preferences/com.apple.loginwindow GuestEnabled` | Output when guest is off (`0`, `1`, or key-not-found error)? Exit code in each case? |
+| `defaults read /Library/Preferences/com.apple.loginwindow SHOWFULLNAME` | Output when the user list is shown vs. name+password? Key absent behavior? |
+| `dscl . read /Groups/admin GroupMembership` | Exact output format — does it use `GroupMembership:` or `GroupMembership:\n`? Are usernames space-separated? |
+| `dscl . read /Groups/admin GroupMembership 2>&1; echo "rc=$?"` | Exit code when the group exists; what happens if `/Groups/admin` is missing (should never occur on macOS but defensive check)? |
+| `id -un` | Confirm this returns the current user's short name for the admin-count comparison |
+
+For the `dscl` check: confirm the exact field name (`GroupMembership` vs `GroupMembershipUsers`) and whether the current user's short name matches one of the listed members character-for-character. Note whether system accounts (e.g. `root`, `_mbsetupuser`) appear in the list.
+
+Record all output in `docs/cli_verification.md` under a new `## Phase 25 — User Accounts` heading.
+
+**Validation:** All commands run without `sudo` and produce parseable output. Key-absent and exit-code behavior confirmed for both `defaults` calls. Admin group membership format confirmed. Results recorded in `docs/cli_verification.md § Phase 25`.
+
+---
+
+### Step 25.2 — Write the User Accounts collector module
+
+Create `src/collectors/accounts.py` with three functions:
+
+```
+check_guest_account()          → { name, description, status, raw, error }
+check_login_window_display()   → { name, description, status, raw, error }
+check_admin_group_members()    → { name, description, status, raw, error }
+```
+
+**`check_guest_account`:**
+- Command: `["defaults", "read", "/Library/Preferences/com.apple.loginwindow", "GuestEnabled"]`
+- Use `run_cmd_rc` to capture stdout, return code, and error.
+- `rc == 1` and output contains `"does not exist"` → key absent → PASS (`"GuestEnabled: absent (macOS default: off)"`)
+- `rc == 0` and value `"0"` → PASS (`"GuestEnabled: 0 (off)"`)
+- `rc == 0` and value `"1"` → FAIL (`"GuestEnabled: 1 (enabled)"`)
+- Any other combination → UNKNOWN
+
+**`check_login_window_display`:**
+- Command: `["defaults", "read", "/Library/Preferences/com.apple.loginwindow", "SHOWFULLNAME"]`
+- `rc == 1` and output contains `"does not exist"` → key absent → WARN (`"SHOWFULLNAME: absent (macOS default on unmanaged Macs: user list shown)"`)
+- `rc == 0` and value `"1"` → PASS (`"SHOWFULLNAME: 1 (name and password prompt)"`)
+- `rc == 0` and value `"0"` → WARN (`"SHOWFULLNAME: 0 (user list visible at login screen)"`)
+- Any other combination → UNKNOWN
+
+**`check_admin_group_members`:**
+- Command: `["dscl", ".", "read", "/Groups/admin", "GroupMembership"]`
+- Parse the `GroupMembership:` line; strip the field label; split the remaining space-separated usernames.
+- Filter out known system accounts: `root`, `_mbsetupuser`, `_uucp`, `_networkd` (expand based on Step 25.1 findings).
+- Get current user via `os.environ.get("USER") or run_cmd(["id", "-un"])[0].strip()`.
+- `human_members == [current_user]` → PASS (`"Admin group: <username> only"`)
+- `len(human_members) > 1` → WARN with the full member list
+- `human_members == []` → UNKNOWN (no recognizable members — output format may have changed)
+- `dscl` command fails → UNKNOWN
+
+Add a `__main__` block at the bottom for direct smoke-testing.
+
+**Validation:** `.venv/bin/python src/collectors/accounts.py` — all three functions return dicts with the correct five keys; none raise an exception. Status values match the actual state of this machine.
+
+---
+
+### Step 25.3 — Register User Account collectors
+
+Update `src/collectors/__init__.py`:
+- Add `from .accounts import check_guest_account, check_login_window_display, check_admin_group_members`
+- Append all three to `_COLLECTORS`
+- Add `("User Accounts", ["Guest Account", "Login Window Display", "Admin Group Members"])` to the `CATEGORIES` list, positioned after `"Authentication"` and before `"Sharing & Remote Access"`
+
+No changes to `app.py` or the template.
+
+**Validation:** `run_all_collectors()` returns 25 results (22 existing always-on + 3 new). All three User Account signals return dicts with the correct keys. The `CATEGORIES` list produces the correct grouping order on the dashboard.
+
+---
+
+### Step 25.4 — Add unit tests for the User Account collectors
+
+Add `tests/test_accounts.py` following the existing test-file pattern (use `mock_run_cmd_rc` fixture from `conftest.py`).
+
+**`check_guest_account` tests:**
+- `test_guest_account_key_absent_pass` — `rc=1`, output contains `"does not exist"` → PASS
+- `test_guest_account_disabled_pass` — `rc=0`, value `"0"` → PASS
+- `test_guest_account_enabled_fail` — `rc=0`, value `"1"` → FAIL
+- `test_guest_account_unexpected_value_unknown` — `rc=0`, value `"yes"` → UNKNOWN
+- `test_guest_account_command_error_unknown` — `run_cmd_rc` returns a non-empty error string → UNKNOWN
+
+**`check_login_window_display` tests:**
+- `test_login_window_key_absent_warn` — `rc=1`, output contains `"does not exist"` → WARN
+- `test_login_window_name_password_pass` — `rc=0`, value `"1"` → PASS
+- `test_login_window_user_list_warn` — `rc=0`, value `"0"` → WARN
+- `test_login_window_command_error_unknown` — error string returned → UNKNOWN
+
+**`check_admin_group_members` tests:**
+- `test_admin_group_single_user_pass` — `GroupMembership: scottrosenberg`, `USER=scottrosenberg` → PASS
+- `test_admin_group_multiple_users_warn` — `GroupMembership: scottrosenberg backdoor`, `USER=scottrosenberg` → WARN; both usernames appear in raw
+- `test_admin_group_system_accounts_filtered` — `GroupMembership: scottrosenberg root _mbsetupuser`, `USER=scottrosenberg` → PASS (system accounts excluded)
+- `test_admin_group_command_error_unknown` — `dscl` returns a non-empty error → UNKNOWN
+- `test_admin_group_empty_members_unknown` — `GroupMembership:` with no names → UNKNOWN
+
+**Validation:** `pytest tests/test_accounts.py -v` — all tests pass. Full suite passes with no regressions.
+
+---
+
+### Step 25.5 — End-to-end dashboard check
+
+Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
+
+- Confirm the "User Accounts" section appears with three cards under the correct heading, positioned between "Authentication" and "Sharing & Remote Access".
+- Confirm badge colors match the actual machine state for each signal.
+- Smoke-test the FAIL path for Guest Account: temporarily set `defaults write /Library/Preferences/com.apple.loginwindow GuestEnabled -bool true` (requires admin password), refresh the dashboard — Guest Account card should show FAIL. Restore with `defaults write /Library/Preferences/com.apple.loginwindow GuestEnabled -bool false`.
+- Force one accounts collector to fail; confirm it shows UNKNOWN and all other cards are unaffected; restore.
+
+**Validation:** All three User Account cards render correctly with live data. FAIL state for Guest Account is visually confirmed. No regressions in any of the 22 existing signal cards. 25 total badges present and correctly grouped.
+
+---
+
+### Step 25.6 — Update README and documentation
+
+- Add signals under a new `### User Accounts` section in the Signals monitored table in `README.md`.
+- Add a Known Limitations entry for `check_admin_group_members` noting that it filters a fixed list of known system accounts — a future macOS version introducing a new system account not in the filter list could produce a false WARN.
+- Confirm `docs/cli_verification.md` has the Phase 25 section from Step 25.1.
+- Update `docs/SIGNAL_GAPS.md` — mark the User Accounts gap as addressed in Phase 25.
+
+**Validation:** README accurately describes each new signal and its status logic. `accounts.py` added to project structure table. `docs/cli_verification.md` has the Phase 25 section.
+
+---
+
+### Phase 25 Integration Validation
+
+- [x] `check_guest_account` returns PASS when `GuestEnabled` is `0` or absent
+- [x] `check_guest_account` returns FAIL when `GuestEnabled` is `1`
+- [x] `check_login_window_display` returns PASS when `SHOWFULLNAME` is `1`
+- [x] `check_login_window_display` returns WARN when `SHOWFULLNAME` is `0` or absent
+- [x] `check_admin_group_members` returns PASS when only the current user is in the admin group
+- [x] `check_admin_group_members` returns WARN when additional human users are present, with their names in `raw`
+- [x] Known system accounts (`root`, `_mbsetupuser`, etc.) are excluded from the admin member count
+- [x] All three signals degrade to UNKNOWN gracefully when their commands fail — no crash, no 500
+- [x] "User Accounts" section appears between "Authentication" and "Sharing & Remote Access" in the dashboard
+- [x] All 22 existing signal cards render correctly — no regressions
+- [x] No collector calls `sudo`
+- [x] `pytest tests/test_accounts.py` exits 0 — all tests pass
+- [x] Full test suite (`pytest`) exits 0 — no regressions
+- [x] `docs/cli_verification.md` has the Phase 25 section with command output recorded
+- [x] README `### User Accounts` section accurately describes each signal
+
+---
+
 ## Open Issues
 
 Issues identified after Phase 22. Each entry is classified as **Bug** (incorrect behavior), **Inconsistency** (code style/convention drift), or **Gap** (missing capability documented as a known limitation).

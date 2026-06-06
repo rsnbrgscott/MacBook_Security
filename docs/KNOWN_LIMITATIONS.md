@@ -54,6 +54,12 @@ This means the signal cannot detect a situation where Apple changes its default 
 
 `check_screen_lock` uses `osascript` to query `System Events` for the `require password to wake` property. If Automation access to System Events is revoked in **System Settings → Privacy & Security → Automation**, this collector returns UNKNOWN rather than the actual lock state.
 
+### Admin Group Members — fixed system account filter list
+
+`check_admin_group_members` filters a hardcoded set of known system accounts (`root`, `_mbsetupuser`, `_uucp`, `_networkd`) before comparing the remaining members to the current user. If a future macOS version introduces a new system account not in this list, it would appear as a human member and produce a false WARN.
+
+**Path to resolve:** Replace the static filter with a dynamic check — compare against `dscl . list /Users` entries whose `UniqueID` is below 500 (system accounts on macOS use UIDs below 500 by convention). This makes the filter self-maintaining across OS updates.
+
 ### AI Security signals — limited detection scope
 
 **Shell config check** covers 12 known AI provider key variable names (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, and eight others). Keys stored under non-standard names, loaded via a password manager CLI (e.g. `op run --`), sourced from a `.env` file in a project directory, or set in a tool-specific config file (e.g. `~/.config/gh/hosts.yml`) are not detected.

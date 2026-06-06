@@ -35,6 +35,11 @@ from .hygiene import (
     check_root_certificates,
     check_screen_lock,
 )
+from .accounts import (
+    check_guest_account,
+    check_login_window_display,
+    check_admin_group_members,
+)
 from .ai import (
     check_ai_keys_shell_config,
     check_ai_keys_shell_history,
@@ -47,6 +52,7 @@ CATEGORIES: list[tuple[str, list[str]]] = [
     ("Network", ["Application Firewall", "Stealth Mode", "Listening Services"]),
     ("Persistence", ["User Launch Agents", "Global Launch Agents", "Launch Daemons", "Login Items"]),
     ("Authentication", ["Failed Logins", "SSH Authorized Keys"]),
+    ("User Accounts", ["Guest Account", "Login Window Display", "Admin Group Members"]),
     ("Sharing & Remote Access", ["Remote Login (SSH)", "Screen Sharing / Remote Management", "AirDrop Receiver Mode"]),
     ("Software Hygiene", ["Automatic Updates", "Root Certificate Trust", "Screen Lock"]),
     ("AI Security", ["AI API Keys in Shell Config", "Shell History Key Exposure", "Local AI Server Exposure"]),
@@ -68,6 +74,9 @@ _COLLECTORS = [
     check_login_items,
     check_failed_logins,
     check_ssh_keys,
+    check_guest_account,
+    check_login_window_display,
+    check_admin_group_members,
     check_remote_login,
     check_screen_sharing,
     check_airdrop,

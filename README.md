@@ -69,6 +69,14 @@ WARN on authentication signals means activity was detected — review if unexpec
 | **Failed Logins** | `log show` (loginwindow + sshd, past 24h) | Failed authentication attempts at the macOS login screen or via SSH. A WARN may be a mistyped password or an external probe — review the listed events. |
 | **SSH Authorized Keys** | `~/.ssh/authorized_keys` | Keys that allow passwordless remote login to this machine. If present, anyone holding a matching private key can SSH in. |
 
+### User Accounts
+
+| Signal | What it checks | Why it matters |
+|--------|---------------|----------------|
+| **Guest Account** | `defaults read /Library/Preferences/com.apple.loginwindow GuestEnabled` | The guest account lets anyone with physical access use the machine under a session not attributed to any named user. macOS erases the guest home directory on logout, making forensic investigation difficult. FAIL if enabled; PASS if disabled or key absent (macOS default is off). |
+| **Login Window Display** | `defaults read /Library/Preferences/com.apple.loginwindow SHOWFULLNAME` | Showing the user list at the login screen reveals valid account names to anyone who reaches it — useful for targeted password attacks or social engineering. PASS if set to name-and-password prompt (`1`); WARN if showing user list (`0`) or key absent (unmanaged macOS default is to show the list). |
+| **Admin Group Members** | `dscl . read /Groups/admin GroupMembership` | Unexpected admin accounts are a common persistence mechanism after a compromise. An attacker who creates or elevates a user account retains access even after the initial exploit is patched. PASS if only the current user is in the admin group; WARN with the full member list if multiple human accounts are present. |
+
 ### Sharing & Remote Access
 
 | Signal | What it checks | Why it matters |
@@ -147,6 +155,7 @@ MacBook_Security/
 │   │   ├── network.py           # Application Firewall, Stealth Mode, Listening Services
 │   │   ├── persistence.py       # User/Global Launch Agents, Launch Daemons, Login Items
 │   │   ├── auth.py              # Failed Logins, SSH Authorized Keys
+│   │   ├── accounts.py          # Guest Account, Login Window Display, Admin Group Members
 │   │   ├── sharing.py           # Remote Login, Screen Sharing, AirDrop
 │   │   ├── hygiene.py           # Automatic Updates, Root Certificate Trust, Screen Lock
 │   │   ├── ai.py                # AI API Keys in Shell Config, Shell History Key Exposure, Local AI Server Exposure

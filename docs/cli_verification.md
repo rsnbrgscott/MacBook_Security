@@ -1254,3 +1254,94 @@ When a process is bound to all interfaces, the NAME column reads `*:11434` (not 
 Check both ports per collector call. First FAIL across either port wins the overall status.
 
 **Ollama installation confirmed:** `/opt/homebrew/bin/ollama` present. Default binding is loopback (`127.0.0.1:11434`), which is the secure default. Users who set `OLLAMA_HOST=0.0.0.0` will see FAIL.
+
+---
+
+## Phase 25 — User Accounts
+
+Recorded 2026-06-06 on macOS Apple Silicon (Mac15,9).
+
+### `defaults read /Library/Preferences/com.apple.loginwindow GuestEnabled`
+
+```
+0
+rc=0
+```
+
+Key is present with value `0` (guest account off). Exit code 0.
+
+**Key-absent test** (using a nonexistent key name to confirm error message format):
+
+```
+2026-06-06 16:18:21.429 defaults[26240:7838602]
+The domain/default pair of (/Library/Preferences/com.apple.loginwindow, GuestEnabled_NONEXISTENT) does not exist
+rc=1
+```
+
+Key-absent exit code is **1**; stderr contains `"does not exist"`. The parser must check stderr (or combined output) for this string, not just the exit code.
+
+**Status logic confirmed:**
+- `rc=0`, value `"0"` → PASS
+- `rc=0`, value `"1"` → FAIL
+- `rc=1` + `"does not exist"` in output → PASS (key absent = macOS default = off)
+- Anything else → UNKNOWN
+
+### `defaults read /Library/Preferences/com.apple.loginwindow SHOWFULLNAME`
+
+```
+2026-06-06 16:18:12.884 defaults[26163:7838126]
+The domain/default pair of (/Library/Preferences/com.apple.loginwindow, SHOWFULLNAME) does not exist
+rc=1
+```
+
+Key is absent on this machine. The macOS default on an unmanaged personal Mac is to show the user list at the login window (i.e., `SHOWFULLNAME` absent = user list shown = WARN).
+
+**Status logic confirmed:**
+- `rc=1` + `"does not exist"` in output → WARN (key absent = system default = user list shown)
+- `rc=0`, value `"1"` → PASS (name+password prompt)
+- `rc=0`, value `"0"` → WARN (user list visible)
+- Anything else → UNKNOWN
+
+### `dscl . read /Groups/admin GroupMembership`
+
+```
+GroupMembership: root scottrosenberg
+rc=0
+```
+
+Output format: single line, `GroupMembership:` label followed by space-separated usernames on the same line. **No newline between label and values.** Current user (`scottrosenberg`) is present. `root` appears in the list and must be filtered as a system account.
+
+**`GroupMembershipUsers` field:**
+
+```
+No such key: GroupMembershipUsers
+rc=0
+```
+
+Field does not exist; use `GroupMembership` only.
+
+**Nonexistent group (defensive check):**
+
+```
+<dscl_cmd> DS Error: -14136 (eDSRecordNotFound)
+rc=56
+```
+
+Non-zero exit code when group is missing. Any non-zero `rc` → UNKNOWN.
+
+**System accounts to filter:** `root` confirmed present. Plan spec also lists `_mbsetupuser`, `_uucp`, `_networkd` — none present on this machine but filter is applied defensively.
+
+**`id -un` result:**
+
+```
+scottrosenberg
+```
+
+Matches the username in the `GroupMembership` output character-for-character. Using `os.environ.get("USER")` is sufficient; `id -un` subprocess is the fallback.
+
+**Status logic confirmed:**
+- Parse line after `GroupMembership:`, split by whitespace, filter system accounts
+- `human_members == [current_user]` → PASS
+- `len(human_members) > 1` → WARN with full list
+- `human_members == []` → UNKNOWN (unexpected format)
+- `rc != 0` → UNKNOWN
