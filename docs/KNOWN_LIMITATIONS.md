@@ -42,7 +42,7 @@ The consequence is that several signals are either absent or incomplete:
 
 ### Listening Services — root-owned processes not visible
 
-`lsof -iTCP -sTCP:LISTEN` runs without elevated privileges. Processes listening on a port while running as root (e.g. system daemons, VPN clients) do not appear in the output. A root-owned listener on an external interface would not trigger the WARN status.
+`lsof -iTCP -sTCP:LISTEN` and `lsof -iUDP` run without elevated privileges. Processes listening on a port while running as root (e.g. system daemons, VPN clients) do not appear in the output. A root-owned listener on an external interface — TCP or UDP — would not trigger the WARN status.
 
 ### Software update and screen lock signals rely on `defaults` absence semantics
 

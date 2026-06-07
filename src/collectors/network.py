@@ -60,29 +60,43 @@ def check_stealth_mode() -> dict:
 
 
 def check_listening_ports() -> dict:
-    """List TCP services in LISTEN state; WARN if any are bound to all interfaces (*:port)."""
+    """List TCP and UDP services with external bindings; WARN if any bound to all interfaces."""
     name = "Listening Services"
     desc = (
-        "TCP services accepting inbound connections. "
+        "TCP and UDP services accepting inbound connections. "
         "External listeners are reachable from the local network."
     )
-    raw, error = run_cmd(["lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"], timeout=15)
-    if error:
-        return make_result(name, desc, "UNKNOWN", raw, error)
 
-    lines = raw.splitlines()
-    data_lines = [ln for ln in lines[1:] if ln.strip()]  # skip header row
+    tcp_raw, tcp_error = run_cmd(["lsof", "-iTCP", "-sTCP:LISTEN", "-P", "-n"], timeout=15)
+    if tcp_error:
+        return make_result(name, desc, "UNKNOWN", tcp_raw, tcp_error)
 
-    # A process bound to '*:port' is reachable from the local network.
-    # Processes bound to '127.0.0.1:port' are local-only and not flagged.
-    # Note: lsof runs without root, so system-owned (root) processes are not visible.
-    external = [
-        ln for ln in data_lines
+    udp_raw, udp_error = run_cmd(["lsof", "-iUDP", "-P", "-n"], timeout=15)
+    if udp_error:
+        return make_result(name, desc, "UNKNOWN", udp_raw, udp_error)
+
+    # TCP LISTEN: NAME format is "*:port (LISTEN)" — address is second-to-last token.
+    # Note: lsof runs without root, so root-owned processes are not visible.
+    tcp_lines = [ln for ln in tcp_raw.splitlines()[1:] if ln.strip()]
+    tcp_external = [
+        ln for ln in tcp_lines
         if len(ln.split()) >= 2 and ln.split()[-2].startswith("*:")
     ]
 
-    status = "WARN" if external else "PASS"
-    return make_result(name, desc, status, raw)
+    # UDP: NAME format is "*:port" (last token). Exclude "*:*" — sockets with no port
+    # assigned yet cannot receive unsolicited inbound datagrams on a specific port.
+    udp_lines = [ln for ln in udp_raw.splitlines()[1:] if ln.strip()]
+    udp_external = [
+        ln for ln in udp_lines
+        if ln.split()[-1].startswith("*:") and ln.split()[-1] != "*:*"
+    ]
+
+    tcp_section = "\n".join(tcp_external) if tcp_external else "none"
+    udp_section = "\n".join(udp_external) if udp_external else "none"
+    merged = f"TCP (LISTEN):\n{tcp_section}\n\nUDP (external):\n{udp_section}"
+
+    status = "WARN" if (tcp_external or udp_external) else "PASS"
+    return make_result(name, desc, status, merged)
 
 
 def _classify_ip(addr: str) -> str:

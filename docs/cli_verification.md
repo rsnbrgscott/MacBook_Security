@@ -1902,3 +1902,58 @@ All three keys are ED25519 (256-bit — PASS). `check_ssh_key_strength` will ret
 - Distinguish protected vs non-key files by checking stderr for `"incorrect passphrase"` substring.
 - SSH config parser: track current `Host` pattern, collect host patterns where `ForwardAgent yes` appears (case-insensitive on both keyword and value).
 - Key strength parser: extract bits from `int(line.split()[0])` and algorithm from the trailing `(ALGO)` token.
+
+---
+
+## Phase 30 — Listening Services: Add UDP
+
+### Command 1 — Full UDP socket list (no sudo)
+
+```zsh
+$ lsof -iUDP -P -n
+COMMAND   PID           USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+rapportd  625 scottrosenberg   21u  IPv6 0xafcd1cca1e0e77b3      0t0  UDP *:3722
+identitys 635 scottrosenberg    9u  IPv4 0xdd6e1ca4c6edc05e      0t0  UDP *:*
+identitys 635 scottrosenberg   15u  IPv4 0x8d30f855d7ee94be      0t0  UDP *:*
+identitys 635 scottrosenberg   20u  IPv4 0x65b889621deb307d      0t0  UDP *:*
+replicato 649 scottrosenberg    8u  IPv6 0x98bea852fa79ad17      0t0  UDP *:50813
+Google    757 scottrosenberg   31u  IPv6 0x277597c370693ff6      0t0  UDP *:5353
+Google    757 scottrosenberg   33u  IPv6 0x7ac71c4b918ceff5      0t0  UDP *:5353
+Google    757 scottrosenberg   34u  IPv6 0x9771134fe0851104      0t0  UDP *:5353
+Google    757 scottrosenberg   35u  IPv6 0xdaa681ba73295ec3      0t0  UDP *:5353
+Google    757 scottrosenberg   36u  IPv6 0xaad4efc6c3ec5346      0t0  UDP *:5353
+Google    757 scottrosenberg   37u  IPv6  0xbfc638d6ef27ee7      0t0  UDP *:5353
+Google    757 scottrosenberg   39u  IPv6 0x8a58c3d5e1284d8e      0t0  UDP [2600:...]:63059->[2607:...]:443
+Google    757 scottrosenberg   43u  IPv6 0x277597c370693ff6      0t0  UDP [2600:...]:51450->[2a06:...]:443
+EEventMan 832 scottrosenberg    4u  IPv4 0x6825a3dde59019de      0t0  UDP *:2968
+```
+
+(Connected Google Chrome sockets abbreviated; they are point-to-point and not externally bound.)
+
+### Command 2 — Filter for external bindings only
+
+```zsh
+$ lsof -iUDP -P -n | awk 'NR==1 || $9 ~ /^\*:/'
+COMMAND    PID           USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+rapportd   625 scottrosenberg   21u  IPv6 0xafcd1cca1e0e77b3      0t0  UDP *:3722
+identitys  635 scottrosenberg    9u  IPv4 0xdd6e1ca4c6edc05e      0t0  UDP *:*
+identitys  635 scottrosenberg   15u  IPv4 0x8d30f855d7ee94be      0t0  UDP *:*
+identitys  635 scottrosenberg   20u  IPv4 0x65b889621deb307d      0t0  UDP *:*
+replicato  649 scottrosenberg    8u  IPv6 0x98bea852fa79ad17      0t0  UDP *:50813
+Google     757 scottrosenberg   31u  IPv6 0x277597c370693ff6      0t0  UDP *:5353
+Google     757 scottrosenberg   33u  IPv6 0x7ac71c4b918ceff5      0t0  UDP *:5353
+Google     757 scottrosenberg   34u  IPv6 0x9771134fe0851104      0t0  UDP *:5353
+Google     757 scottrosenberg   35u  IPv6 0xdaa681ba73295ec3      0t0  UDP *:5353
+Google     757 scottrosenberg   36u  IPv6 0xaad4efc6c3ec5346      0t0  UDP *:5353
+Google     757 scottrosenberg   37u  IPv6  0xbfc638d6ef27ee7      0t0  UDP *:5353
+EEventMan  832 scottrosenberg    4u  IPv4 0x6825a3dde59019de      0t0  UDP *:2968
+```
+
+**Implementation decisions:**
+
+- `lsof -iUDP -P -n` runs without `sudo` — confirmed. Output is identical to the TCP caller's privilege model.
+- External binding format: NAME column uses `*:port` for all externally bound sockets observed. No `[::]:port` (IPv6 wildcard) format appeared on this machine — all IPv6 wildcard sockets use `*:port` as well (e.g. `rapportd` on IPv6 `*:3722`). The `*:` prefix filter is sufficient.
+- `*:*` (NAME = `*:*`, no specific port): `identitys` sockets with no port assigned yet. These are unconnected UDP sockets that have not yet called `bind()` — they cannot receive unsolicited inbound datagrams on a specific port. **Exclude from the external-binding count** by filtering for `*:<digits>` (port number present) rather than bare `*:*`.
+- mDNS (port 5353): owned by `Google` (Chrome), not `mDNSResponder`. Six sockets bound to `*:5353`. This is expected browser mDNS behavior (Chrome uses mDNS for WebRTC peer discovery). The signal will flag it as an external UDP binding and show the process name in raw output — the user can review and decide. No special-case filtering.
+- Connected UDP sockets (e.g. Chrome QUIC to `[2600:...]:port → [2607:...]:443`): NAME contains `->` and does not start with `*:`. Correctly excluded by the `*:` filter.
+- Parser: split on whitespace, take the last field (`line.split()[-1]`) as NAME. Check `name.startswith("*:") and name != "*:*"` to identify external port-bound sockets.

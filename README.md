@@ -47,7 +47,7 @@ PORT=9000 .venv/bin/python src/app.py
 |--------|---------------|----------------|
 | **Application Firewall** | `socketfilterfw --getglobalstate` | Blocks unsolicited inbound connections to applications. If disabled, any app can accept connections from the network without restriction. |
 | **Stealth Mode** | `socketfilterfw --getstealthmode` | Prevents the machine from responding to network probe requests such as ICMP ping. If off, the machine is more easily discovered during a network scan. |
-| **Listening Services** | `lsof -iTCP -sTCP:LISTEN -P -n` | Shows TCP services accepting inbound connections. Services bound to all interfaces (`*`) are reachable from the local network, not just from this machine. |
+| **Listening Services** | `lsof -iTCP -sTCP:LISTEN -P -n` and `lsof -iUDP -P -n` | Shows TCP and UDP services with external bindings. Services bound to all interfaces (`*`) are reachable from the local network, not just from this machine. |
 | **Wi-Fi Security** | `system_profiler SPAirPortDataType` — parses `Security:` field from the currently associated network | An open or WEP network routes traffic in cleartext or with a broken cipher. WPA2 is acceptable but lacks per-session forward secrecy. WPA3 is current best practice. PASS if WPA3 or not connected; WARN if WPA2; FAIL if open, WEP, or WPA1. |
 | **DNS Configuration** | `scutil --dns` — extracts active nameserver IPs and classifies each as local, known DoH-capable, or unrecognized public | Unrecognized public resolvers may log, modify, or intercept DNS queries. PASS if all nameservers are local (RFC 1918 / loopback / link-local) or known DoH resolvers (Cloudflare, Google, Quad9, OpenDNS, AdGuard); WARN if any nameserver is an unrecognized public IP. |
 

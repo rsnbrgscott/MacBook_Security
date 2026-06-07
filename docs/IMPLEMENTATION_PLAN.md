@@ -4170,6 +4170,122 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
 ---
 
+## Phase 30 — Listening Services: Add UDP
+
+**Goal:** Extend the existing `check_listening_ports` collector to include UDP services. The current implementation only covers `TCP LISTEN` state via `lsof -iTCP -sTCP:LISTEN`. UDP is connectionless — there is no LISTEN state — so any socket bound to `*:port` (all interfaces) is reachable from the network. Notable examples: mDNS (5353), accidentally exposed media servers, VPN daemons.
+
+**Approach:** Run a second `lsof` call for UDP, filter for external bindings (`*:port`), and merge the results into the existing "Listening Services" signal. The merged raw output is sectioned (`TCP:` / `UDP:`) so the user can see both. Status logic: WARN if any external TCP listener OR any external UDP binding exists.
+
+**Signal change (no new signal):**
+
+| Signal | Before | After |
+|--------|--------|-------|
+| Listening Services | TCP external listeners only | TCP external listeners + UDP external bindings |
+
+> **No Fix button:** There is no single-command remediation for an arbitrary listening service. The user must identify which process owns the socket (via raw output) and stop or reconfigure it manually.
+
+---
+
+### Step 30.1 — Verify CLI commands
+
+Run the following without `sudo` and record exact output in `docs/cli_verification.md` under `## Phase 30 — Listening Services: Add UDP`.
+
+```zsh
+lsof -iUDP -P -n
+lsof -iUDP -P -n | awk 'NR==1 || $9 ~ /^\*:/'
+```
+
+Verify:
+- Does `lsof -iUDP -P -n` require `sudo`? (It should not — the same constraint as the TCP call.)
+- What does the NAME column look like for UDP sockets bound to all interfaces? Confirm the exact format (`*:5353`, `*:49152`, etc.) vs. localhost-only (`127.0.0.1:port`, `[::1]:port`).
+- Is mDNS (`*:5353`) present? Is it owned by `mDNSResponder`? Record the process name so the plan can decide whether to annotate it.
+- Are there any unexpected external UDP bindings on this machine?
+- Does the NAME column for UDP ever use `[::]:port` (IPv6 wildcard) instead of `*:port`? If so, both formats must be detected.
+
+Record the full raw output for at least: `lsof -iUDP -P -n` and the filtered version.
+
+**Validation:** ✅ Raw output recorded in `docs/cli_verification.md § Phase 30`. `lsof -iUDP -P -n` runs without `sudo`. External bindings use `*:port` format only — no `[::]:port` observed; `*:` prefix filter is sufficient. `*:*` (no port assigned) excluded from external count. mDNS (5353) owned by Chrome (6 sockets) — flagged, not filtered. Connected sockets (NAME contains `->`) correctly excluded by filter. Parser uses `line.split()[-1]` for NAME; external check is `name.startswith("*:") and name != "*:*"`.
+
+---
+
+### Step 30.2 — Update `check_listening_ports` in `src/collectors/network.py`
+
+Extend the function to run both TCP and UDP `lsof` queries and merge their results.
+
+- Keep the existing TCP call: `lsof -iTCP -sTCP:LISTEN -P -n`
+- Add UDP call: `lsof -iUDP -P -n`
+- For UDP, filter lines where the NAME field (last column) starts with `*:` or `[::]:` — these are externally bound sockets
+- If either subprocess call fails with a hard error, return UNKNOWN for the whole signal (consistent with current behavior)
+- Build merged raw output in two labeled sections:
+
+  ```
+  TCP (LISTEN):
+  <tcp lines or "none">
+
+  UDP (external):
+  <udp lines or "none">
+  ```
+
+- Update `status` logic:
+  - `WARN` if any external TCP listener OR any external UDP binding
+  - `PASS` if neither
+
+- Update `desc` to mention both TCP and UDP:
+  ```python
+  desc = (
+      "TCP and UDP services accepting inbound connections. "
+      "External listeners are reachable from the local network."
+  )
+  ```
+
+**Validation:** ✅ `check_listening_ports()` returns the merged raw output. Status is WARN when an external UDP binding is present; PASS when neither TCP nor UDP has external bindings. `src/collectors/network.py` has no `shell=True` and no `sudo`.
+
+---
+
+### Step 30.3 — Update unit tests in `tests/test_network.py`
+
+Add test cases for the new UDP path. Do not modify existing TCP tests — they must continue to pass.
+
+New test cases:
+- `test_listening_ports_udp_external_warn`: mock `run_cmd` to return a UDP line with `*:5353` in NAME → status is `WARN`
+- `test_listening_ports_udp_ipv6_wildcard_warn`: mock UDP line with `[::]:5353` → status is `WARN` (if IPv6 wildcard was observed in Step 30.1)
+- `test_listening_ports_udp_localhost_only_pass`: mock UDP line with `127.0.0.1:port` → status is `PASS` (local-only binding is not flagged)
+- `test_listening_ports_tcp_and_udp_both_external_warn`: mock both TCP and UDP external lines → status is `WARN`, raw output contains both sections
+- `test_listening_ports_tcp_pass_udp_external_warn`: mock TCP with no external listeners, UDP with external binding → status is `WARN`
+- `test_listening_ports_udp_error_unknown`: mock UDP `run_cmd` returning an error → status is `UNKNOWN`
+- `test_listening_ports_raw_sections`: mock both calls → raw output contains `"TCP (LISTEN):"` and `"UDP (external):"` labels
+
+**Validation:** ✅ `pytest tests/test_network.py` exits 0. All new cases pass. All pre-existing TCP test cases still pass.
+
+---
+
+### Step 30.4 — Update documentation
+
+- Update `docs/cli_verification.md` § Phase 30 if any behavior differed from Step 30.1 expectations.
+- Update the `check_listening_ports` docstring in `src/collectors/network.py` to reference both TCP and UDP.
+- Update the Known Limitations entry for Listening Services in `README.md` and/or `docs/KNOWN_LIMITATIONS.md`: note that `lsof` without root still misses system-owned (root-process) UDP sockets, same as TCP.
+- Strike through the "Listening Services — add UDP" entry in `docs/SIGNAL_GAPS.md` and annotate as implemented in Phase 30.
+
+**Validation:** ✅ `docs/SIGNAL_GAPS.md` entry struck through and annotated. Known Limitations updated. Docstring updated.
+
+---
+
+### Phase 30 Integration Validation
+
+- [x] `check_listening_ports()` returns all five required dict keys (`name`, `description`, `status`, `raw`, `error`)
+- [x] Raw output is sectioned with `TCP (LISTEN):` and `UDP (external):` labels
+- [x] Status is `WARN` when any external UDP binding (`*:port` or `[::]:port`) is present
+- [x] Status is `PASS` when no external TCP or UDP bindings exist
+- [x] Status is `UNKNOWN` (not a 500) when either `lsof` call fails
+- [x] No `shell=True` and no `sudo` in the collector
+- [x] `pytest tests/test_network.py` exits 0 — all new and existing tests pass (18 passed)
+- [x] Full test suite (`pytest`) exits 0 — 165 passed, no regressions
+- [x] Dashboard renders correctly — "Listening Services" card shows updated description and merged raw output; badge count 32 unchanged
+- [x] `docs/cli_verification.md` has Phase 30 section with recorded command output
+- [x] `docs/SIGNAL_GAPS.md` "Listening Services — add UDP" entry struck through and annotated with Phase 30
+
+---
+
 ## Open Issues
 
 Issues identified after Phase 22. Each entry is classified as **Bug** (incorrect behavior), **Inconsistency** (code style/convention drift), or **Gap** (missing capability documented as a known limitation).

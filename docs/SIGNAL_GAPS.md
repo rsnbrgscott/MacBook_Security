@@ -42,12 +42,9 @@ Note: passphrase detection uses `ssh-keygen -y` with empty stdin (exit 0 → unp
 
 ## Improvements to existing signals
 
-### Listening Services — add UDP
+### ~~Listening Services — add UDP~~ *(implemented — Phase 30)*
 
-Current `check_listening_ports` uses `-iTCP -sTCP:LISTEN` and misses UDP services entirely. mDNS (5353), accidentally exposed media servers, and some VPN software listen on UDP.
-
-- Add a second `lsof` call: `lsof -iUDP -P -n` and filter for external bindings
-- Merge results into the existing signal or split into a separate "UDP Listeners" signal
+`check_listening_ports` now runs both `lsof -iTCP -sTCP:LISTEN -P -n` and `lsof -iUDP -P -n`. UDP sockets bound to `*:<port>` (excluding unbound `*:*`) are treated as external bindings and trigger WARN. Raw output is sectioned (`TCP (LISTEN):` / `UDP (external):`). Verified on this machine: Chrome holds six UDP `*:5353` (mDNS) sockets; `rapportd`, `replicato`, and `EEventMan` each hold additional external UDP ports. See Phase 30 in `docs/IMPLEMENTATION_PLAN.md`.
 
 ### Local AI Server — expand port coverage
 
