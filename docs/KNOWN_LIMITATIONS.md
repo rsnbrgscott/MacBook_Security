@@ -86,6 +86,24 @@ No Fix button is provided. The encryption protocol (WPA2, WPA3, etc.) is a setti
 
 **Path to resolve (allowlist):** Read an additional allowlist from a user-configurable file (e.g. `~/.config/macbook_security/dns_allowlist.txt`). Adds configuration surface without solving the underlying IPv6 problem.
 
+### SSH Key Passphrases — ~/.ssh/ only; macOS Keychain passphrases not detected
+
+`check_ssh_key_passphrases` scans only `~/.ssh/`. Private keys stored in non-standard locations are not detected. The check probes each key with `ssh-keygen -y` and empty stdin — if macOS Keychain supplies the passphrase transparently during the probe (which does not happen in practice because `ssh-keygen -y` does not use the SSH agent or Keychain), the key would appear protected even if the file itself has no passphrase. Files that `ssh-keygen -y` rejects as invalid format (non-key files) are silently skipped.
+
+No Fix button is provided. Adding a passphrase to an existing key (`ssh-keygen -p -f <key>`) requires interactive input and cannot be driven by a one-shot `osascript` command.
+
+### SSH Agent Forwarding — ~/.ssh/config only; Include directives not followed
+
+`check_ssh_agent_forwarding` reads `~/.ssh/config` only. It does not parse `/etc/ssh/ssh_config` (system-wide defaults) or follow `Include` directives within `~/.ssh/config` that pull in additional config fragments. A `ForwardAgent yes` directive in an included file will not be detected.
+
+No Fix button is provided. Removing a `ForwardAgent` entry requires identifying the specific host block and line to edit, which is not automatable without parsing context the dashboard does not have.
+
+### SSH Key Strength — *.pub files only; certificate files may parse unexpectedly
+
+`check_ssh_key_strength` scans `~/.ssh/*.pub`. Private key files without a corresponding `.pub` are not checked for algorithm strength (they are covered separately by the passphrase collector). SSH certificate files (`-cert.pub`) may produce unexpected `ssh-keygen -l` output — parse failures on a per-file basis are treated as UNKNOWN for that file and do not affect the overall result.
+
+No Fix button is provided. Migrating to a stronger key algorithm requires generating a new keypair and distributing the new public key to all remote `authorized_keys` files — not automatable as a single command.
+
 ### Bluetooth — point-in-time snapshot; no Fix button
 
 `check_bluetooth` reads the Bluetooth controller state at the moment the page loads. Discoverability on macOS reverts to `Off` automatically after approximately 3 minutes of inactivity following a pairing session. A brief discoverable window that opens and closes between dashboard loads will not be detected.
@@ -119,6 +137,9 @@ Fix buttons require commands that are single-flag toggles, fully reversible from
 | Listening Services | No single command to "fix" an arbitrary listening service; remediation is service-specific |
 | Persistence signals | Removing launch agents or daemons requires knowing which entries are unwanted — not automatable |
 | Authentication signals | Failed logins and SSH authorized keys require user judgment; no safe automated action |
+| SSH Key Passphrases | Adding a passphrase requires interactive `ssh-keygen -p` — cannot be driven by a one-shot osascript command |
+| SSH Agent Forwarding | Removing the directive requires editing a specific line in `~/.ssh/config` — not automatable without parsing context |
+| SSH Key Strength | Key algorithm migration requires generating a new keypair and distributing the public key to remote hosts |
 | Wi-Fi Security | Encryption protocol is set on the access point/router, not this machine — no local command changes it |
 | DNS Configuration | Nameservers are pushed by DHCP or set per-interface in System Settings → Network; no single command reliably sets them across all interfaces |
 

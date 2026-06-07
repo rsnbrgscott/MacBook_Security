@@ -26,6 +26,9 @@ from .persistence import (
 from .auth import (
     check_failed_logins,
     check_ssh_keys,
+    check_ssh_key_passphrases,
+    check_ssh_agent_forwarding,
+    check_ssh_key_strength,
 )
 from .sharing import (
     check_remote_login,
@@ -55,7 +58,7 @@ CATEGORIES: list[tuple[str, list[str]]] = [
     ("System Integrity", ["System Integrity Protection", "Gatekeeper", "FileVault", "Secure Boot"]),
     ("Network", ["Application Firewall", "Stealth Mode", "Listening Services", "Wi-Fi Security", "DNS Configuration"]),
     ("Persistence", ["User Launch Agents", "Global Launch Agents", "Launch Daemons", "Login Items"]),
-    ("Authentication", ["Failed Logins", "SSH Authorized Keys"]),
+    ("Authentication", ["Failed Logins", "SSH Authorized Keys", "SSH Key Passphrases", "SSH Agent Forwarding", "SSH Key Strength"]),
     ("User Accounts", ["Guest Account", "Login Window Display", "Admin Group Members"]),
     ("Sharing & Remote Access", ["Remote Login (SSH)", "Screen Sharing / Remote Management", "AirDrop Receiver Mode"]),
     ("Software Hygiene", ["Automatic Updates", "Root Certificate Trust", "Screen Lock", "Screensaver Idle Timeout"]),
@@ -81,6 +84,9 @@ _COLLECTORS = [
     check_login_items,
     check_failed_logins,
     check_ssh_keys,
+    check_ssh_key_passphrases,
+    check_ssh_agent_forwarding,
+    check_ssh_key_strength,
     check_guest_account,
     check_login_window_display,
     check_admin_group_members,

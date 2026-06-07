@@ -1,14 +1,25 @@
 # Authentication signal collectors for the macOS security dashboard.
-# Checks: Failed Logins (unified log via `log show`), SSH Authorized Keys (file read).
-# Both signals return WARN when activity is detected, PASS when clean.
+# Checks: Failed Logins, SSH Authorized Keys, SSH Key Passphrases,
+#         SSH Agent Forwarding, SSH Key Strength.
 # `log show` requires Full Disk Access; empty output without an error is treated as UNKNOWN.
 
+import re
+import subprocess
 from pathlib import Path
 
 try:
     from .utils import run_cmd, make_result
 except ImportError:
     from utils import run_cmd, make_result  # noqa: F401 — direct script execution
+
+_SSH_DIR = Path.home() / ".ssh"
+
+# Private key files to skip when scanning ~/.ssh/ for key candidates.
+_NON_KEY_NAMES = frozenset({
+    "known_hosts", "known_hosts.old",
+    "authorized_keys", "authorized_keys2",
+    "config", "environment",
+})
 
 # Case-sensitive predicates — CONTAINS[c] is intentional.
 # loginwindow uses all-caps "FAILED"; sshd uses title-case "Failed"/"Invalid".
@@ -68,11 +79,143 @@ def check_ssh_keys() -> dict:
         return make_result(name, desc, "UNKNOWN", "", str(e))
 
 
+def check_ssh_key_passphrases() -> dict:
+    """Check whether any private keys in ~/.ssh/ lack passphrase protection."""
+    name = "SSH Key Passphrases"
+    desc = (
+        "Private keys in ~/.ssh/ without a passphrase are single-file credentials — "
+        "anyone who reads the file has the credential. "
+        "WARN means one or more keys have no passphrase."
+    )
+    try:
+        if not _SSH_DIR.is_dir():
+            return make_result(name, desc, "PASS", "No ~/.ssh/ directory found")
+        candidates = [
+            p for p in _SSH_DIR.iterdir()
+            if p.is_file() and not p.suffix == ".pub" and p.name not in _NON_KEY_NAMES
+        ]
+    except OSError as e:
+        return make_result(name, desc, "UNKNOWN", "", str(e))
+
+    if not candidates:
+        return make_result(name, desc, "PASS", "No private keys found")
+
+    unprotected = []
+    for path in sorted(candidates):
+        try:
+            result = subprocess.run(
+                ["ssh-keygen", "-y", "-f", str(path)],
+                input=b"",
+                capture_output=True,
+                timeout=3,
+            )
+        except Exception as e:
+            return make_result(name, desc, "UNKNOWN", "", f"ssh-keygen error: {e}")
+        if result.returncode == 0:
+            unprotected.append(path.name)
+        # exit 255 + "incorrect passphrase" → protected key → skip (safe)
+        # exit 255 + "invalid format"        → not a key file → skip
+
+    if unprotected:
+        return make_result(name, desc, "WARN",
+                           "Unprotected keys: " + ", ".join(unprotected))
+    return make_result(name, desc, "PASS", "All private keys are passphrase-protected")
+
+
+def check_ssh_agent_forwarding() -> dict:
+    """Check ~/.ssh/config for ForwardAgent yes entries."""
+    name = "SSH Agent Forwarding"
+    desc = (
+        "ForwardAgent yes in ~/.ssh/config lets a remote host use your local SSH agent "
+        "to authenticate to other systems. If the remote host is compromised, "
+        "it can impersonate you to any system that trusts those keys."
+    )
+    config_path = _SSH_DIR / "config"
+    try:
+        if not config_path.exists():
+            return make_result(name, desc, "PASS", "No SSH config file")
+        text = config_path.read_text(errors="replace")
+    except OSError as e:
+        return make_result(name, desc, "UNKNOWN", "", str(e))
+
+    current_host = "*"
+    forwarding_hosts = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        host_match = re.match(r"^Host\s+(.+)", stripped, re.IGNORECASE)
+        if host_match:
+            current_host = host_match.group(1).strip()
+            continue
+        if re.match(r"^ForwardAgent\s+yes\s*$", stripped, re.IGNORECASE):
+            forwarding_hosts.append(current_host)
+
+    if forwarding_hosts:
+        return make_result(name, desc, "WARN",
+                           "ForwardAgent yes for: " + ", ".join(forwarding_hosts))
+    return make_result(name, desc, "PASS", "No ForwardAgent entries found")
+
+
+def check_ssh_key_strength() -> dict:
+    """Check the algorithm and bit-length of public keys in ~/.ssh/."""
+    name = "SSH Key Strength"
+    desc = (
+        "Weak SSH key algorithms (DSA, RSA < 2048) can be broken by well-resourced attackers. "
+        "RSA ≥ 3072 or Ed25519 is recommended."
+    )
+    try:
+        if not _SSH_DIR.is_dir():
+            return make_result(name, desc, "PASS", "No ~/.ssh/ directory found")
+        pub_keys = sorted(_SSH_DIR.glob("*.pub"))
+    except OSError as e:
+        return make_result(name, desc, "UNKNOWN", "", str(e))
+
+    if not pub_keys:
+        return make_result(name, desc, "PASS", "No public keys found")
+
+    worst = "PASS"
+    details = []
+    for path in pub_keys:
+        try:
+            result = subprocess.run(
+                ["ssh-keygen", "-l", "-f", str(path)],
+                capture_output=True,
+                timeout=5,
+            )
+        except Exception as e:
+            return make_result(name, desc, "UNKNOWN", "", f"ssh-keygen error: {e}")
+        line = result.stdout.decode(errors="replace").strip()
+        if not line:
+            continue
+        try:
+            bits = int(line.split()[0])
+        except (ValueError, IndexError):
+            bits = 0
+        algo_match = re.search(r"\((\w+)\)\s*$", line)
+        algo = algo_match.group(1).upper() if algo_match else "UNKNOWN"
+
+        if algo == "DSA" or (algo == "RSA" and bits < 2048):
+            classification = "FAIL"
+        elif algo == "RSA" and bits < 3072:
+            classification = "WARN"
+        else:
+            classification = "PASS"
+
+        if classification == "FAIL" or (classification == "WARN" and worst == "PASS"):
+            worst = classification
+        details.append(f"{path.name}: {algo} {bits}-bit ({classification})")
+
+    raw = "; ".join(details)
+    return make_result(name, desc, worst, raw)
+
+
 if __name__ == "__main__":
     # Quick smoke-test: run this file directly to see current signal output.
     checks = [
         ("Failed Logins", check_failed_logins),
         ("SSH Authorized Keys", check_ssh_keys),
+        ("SSH Key Passphrases", check_ssh_key_passphrases),
+        ("SSH Agent Forwarding", check_ssh_agent_forwarding),
+        ("SSH Key Strength", check_ssh_key_strength),
     ]
     for label, fn in checks:
         result = fn()

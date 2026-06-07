@@ -3972,6 +3972,204 @@ If the machine is connected to WPA2 Wi-Fi and using a local router for DNS (comm
 
 ---
 
+## Phase 29 — SSH Key Hygiene
+
+**Goal:** Add three signals to the existing "Authentication" category covering SSH private key passphrase protection, SSH agent forwarding configuration, and SSH key algorithm strength. All signals read from `~/.ssh/` using `ssh-keygen` or plain file I/O — no `sudo` required.
+
+**Signals added:**
+
+| Signal | Source | PASS | WARN | FAIL | UNKNOWN |
+|--------|--------|------|------|------|---------|
+| SSH Key Passphrases | `ssh-keygen -y -f <key>` on `~/.ssh/*` | no unprotected private keys (or none present) | one or more private keys have no passphrase | — | subprocess failure |
+| SSH Agent Forwarding | `~/.ssh/config` (file read, no subprocess) | no `ForwardAgent yes` entries (or config absent) | one or more host blocks enable agent forwarding | — | file read error |
+| SSH Key Strength | `ssh-keygen -l -f <key>.pub` on `~/.ssh/*.pub` | all keys are RSA ≥ 3072, Ed25519, or ECDSA (or no keys present) | RSA 2048–3071 present | DSA or RSA < 2048 present | command failed |
+
+> **Why WARN for unprotected private keys:** An unprotected private key is a single-file credential — anyone who can read the file (malware, a stolen backup, an exploited process running as the user) immediately has the credential. Passphrase protection requires the private key file plus knowledge of the passphrase, providing a second factor of protection. WARN rather than FAIL because the user may intentionally set up keyless SSH for automation scripts.
+
+> **Why WARN for agent forwarding:** SSH agent forwarding (`ForwardAgent yes`) allows a remote host to use the local SSH agent to authenticate to a third host. If the remote host is compromised or runs a malicious SSH server, it can use the local agent to impersonate the user to any other system that trusts those keys. The risk is limited to hosts explicitly configured with `ForwardAgent yes`.
+
+> **Why FAIL for DSA and short RSA keys:** DSA keys use a fixed 1024-bit modulus and are unconditionally weak by modern standards — OpenSSH has disabled DSA by default since 2015. RSA keys shorter than 2048 bits are within range of well-resourced factoring attacks. RSA 2048–3071 → WARN (acceptable today but aging); RSA ≥ 3072 or Ed25519 → PASS (Ed25519 provides equivalent security to RSA 3072+ at a fraction of the key size).
+
+> **No Fix button for Phase 29:** Adding a passphrase to an existing key (`ssh-keygen -p -f <key>`) requires interactive input that cannot be driven by a one-shot `osascript` command. Removing a `ForwardAgent` entry from `~/.ssh/config` requires knowing which file and line to edit — out of scope for a fixed-command remediation. Key algorithm migration requires generating a new keypair and distributing the new public key to remote `authorized_keys` files.
+
+---
+
+### Step 29.1 — Verify CLI commands
+
+Run the following without `sudo` and record exact output in `docs/cli_verification.md` under `## Phase 29 — SSH Key Hygiene`.
+
+**Private key passphrase detection:**
+
+```zsh
+ls -la ~/.ssh/
+ssh-keygen -y -f ~/.ssh/id_ed25519 < /dev/null
+ssh-keygen -y -f ~/.ssh/id_rsa < /dev/null
+```
+
+Verify: Does passing empty stdin (`< /dev/null`) to `ssh-keygen -y` cause it to fail immediately with a recognizable error for passphrase-protected keys (e.g. `"incorrect passphrase"`, `"bad permissions"`, or a prompt that exits on EOF)? Does it print the public key immediately (exit 0) for unprotected keys? Does it fail with `"invalid format"` or similar for non-key files? Record the exact stderr message for each case so the parser can distinguish protected keys from non-key files.
+
+**SSH config agent forwarding:**
+
+```zsh
+cat ~/.ssh/config
+grep -i "ForwardAgent" ~/.ssh/config
+```
+
+Verify: Is `ForwardAgent yes` present on this machine? Is it per-host or global? Confirm the exact keyword and value casing used (`ForwardAgent yes` / `ForwardAgent Yes` / `forwardagent yes`).
+
+**SSH key algorithm strength:**
+
+```zsh
+ssh-keygen -l -f ~/.ssh/id_ed25519.pub
+ssh-keygen -l -f ~/.ssh/id_rsa.pub
+ssh-keygen -l -f ~/.ssh/id_ecdsa.pub
+```
+
+Verify: Exact output format for each key type. Confirm the parenthesized algorithm token at the end of each line — examples from OpenSSH 9.x: `(ED25519)`, `(RSA)`, `(DSA)`, `(ECDSA)`. Confirm bit count position (first field on the line). Record output for any keys present on this machine.
+
+**Validation:** ✅ Three private key files found: `github_ed25519`, `gitlab_id_ed25519`, `id_ed25519`. `agent/` subdirectory contains a socket file — excluded by regular-file check. All three private keys exit 0 with empty stdin → unprotected; `check_ssh_key_passphrases` will WARN on this machine. Passphrase-protected key (temp test): exit 255, stderr = `"Load key: incorrect passphrase supplied to decrypt private key"`. Non-key file: exit 255, stderr = `"Load key: invalid format"`. Both protected and non-key files return exit 255 — must check stderr content to distinguish. SSH config has no `ForwardAgent` entries (`grep -i ForwardAgent` exits 1); `check_ssh_agent_forwarding` will PASS. All three pub keys are ED25519: `256 SHA256:<fp> <comment> (ED25519)`; `check_ssh_key_strength` will PASS. Key strength output format confirmed: first field = bits, last parenthesized token = algorithm. Results recorded in `docs/cli_verification.md § Phase 29`.
+
+---
+
+### Step 29.2 — Add three collectors to `src/collectors/auth.py`
+
+Add three functions to the existing `src/collectors/auth.py`. The file already imports `make_result`; add `import subprocess` if not already imported (for passphrase and strength checks), and `import pathlib` for directory traversal. Use `run_cmd` only where it fits; call `subprocess.run()` directly for passphrase detection (requires `input=b""` to avoid interactive prompting).
+
+**Private key file identification heuristic:** a file in `~/.ssh/` is a private key candidate if: it has no `.pub` extension, its name is not in `{"known_hosts", "known_hosts.old", "authorized_keys", "authorized_keys2", "config", "environment"}`, and it is a regular file. Do not open or read the file content — the `ssh-keygen -y` invocation itself will reject non-key files.
+
+**`check_ssh_key_passphrases()`:**
+
+- Name: `"SSH Key Passphrases"`
+- Description: `"Private keys in ~/.ssh/ without a passphrase are single-file credentials — anyone who reads the file has the credential."`
+- For each private key candidate path: `subprocess.run(["ssh-keygen", "-y", "-f", str(path)], input=b"", capture_output=True, timeout=3)`
+  - Return code 0 → unprotected; add filename to `unprotected` list
+  - Return code non-0, stderr contains `"incorrect passphrase"` (or confirmed equivalent from Step 29.1) → protected; skip
+  - Return code non-0, other stderr → not a key file or permission error; skip
+- PASS: `unprotected` list is empty (raw: `"All private keys are passphrase-protected"` or `"No private keys found"`)
+- WARN: `unprotected` is non-empty (raw: `"Unprotected keys: <comma-separated filenames>"`)
+- UNKNOWN: `~/.ssh/` unreadable or subprocess raised an exception
+
+**`check_ssh_agent_forwarding()`:**
+
+- Name: `"SSH Agent Forwarding"`
+- Description: `"ForwardAgent yes in ~/.ssh/config allows a remote host to use your local SSH agent to authenticate elsewhere."`
+- Pure file read — no subprocess.
+- If `~/.ssh/config` does not exist → PASS; raw: `"No SSH config file"`
+- Parse the config file: track the current `Host` pattern (reset on each `Host` line); collect all host patterns where `ForwardAgent yes` appears (case-insensitive on both key and value).
+- PASS: no `ForwardAgent yes` found; raw: `"No ForwardAgent entries found"`
+- WARN: one or more matches; raw: `"ForwardAgent yes for: <comma-separated host patterns>"`
+- UNKNOWN: file read exception
+
+**`check_ssh_key_strength()`:**
+
+- Name: `"SSH Key Strength"`
+- Description: `"Weak key algorithms (DSA, short RSA) can be broken by well-resourced attackers. RSA ≥ 3072 or Ed25519 is recommended."`
+- For each `.pub` file in `~/.ssh/`: `subprocess.run(["ssh-keygen", "-l", "-f", str(path)], capture_output=True, timeout=5)`
+  - Parse stdout: first field is bit count (int), last parenthesized token is algorithm (e.g. `(RSA)`, `(ED25519)`, `(DSA)`, `(ECDSA)`)
+  - Classify: DSA → `"FAIL"`; RSA < 2048 → `"FAIL"`; RSA 2048–3071 → `"WARN"`; RSA ≥ 3072, ED25519, ECDSA → `"PASS"`; unrecognized → `"WARN"`
+  - Track worst classification across all keys (FAIL > WARN > PASS)
+- PASS: no pub keys found or all keys classify as PASS; raw: `"No public keys"` or summary line
+- WARN: worst classification is WARN; raw: list of key names with their algorithm and classification
+- FAIL: worst classification is FAIL; raw: list of weak key names with reason
+- UNKNOWN: subprocess raised an exception (not just a bad exit code for a single key)
+
+**Validation:** ✅ `.venv/bin/python src/collectors/auth.py` runs all five smoke tests without error. `check_ssh_key_passphrases` → WARN (`"Unprotected keys: github_ed25519, gitlab_id_ed25519, id_ed25519"`) — correct; all three keys have no passphrase. `check_ssh_agent_forwarding` → PASS (`"No ForwardAgent entries found"`) — correct; no ForwardAgent in config. `check_ssh_key_strength` → PASS; all three keys are ED25519 256-bit.
+
+---
+
+### Step 29.3 — Register the collectors
+
+Update `src/collectors/__init__.py`:
+
+- Add the three new function names to the `from .auth import (...)` block.
+- Add `"SSH Key Passphrases"`, `"SSH Agent Forwarding"`, and `"SSH Key Strength"` to the `"Authentication"` entry in `CATEGORIES` (append after `"SSH Authorized Keys"`).
+- Append the three functions to `_COLLECTORS` after `check_ssh_keys`.
+
+No changes to `app.py` or the template.
+
+**Validation:** ✅ `run_all_collectors()` returns 32 results (29 existing + 3 new). Authentication category: `["Failed Logins", "SSH Authorized Keys", "SSH Key Passphrases", "SSH Agent Forwarding", "SSH Key Strength"]`. No import errors.
+
+---
+
+### Step 29.4 — Add unit tests
+
+Create `tests/test_ssh_hygiene.py`. The three collectors use `subprocess.run` directly (not `run_cmd`), so mock `collectors.auth.subprocess.run`. For `check_ssh_agent_forwarding`, mock `pathlib.Path.read_text` or use `tmp_path` to write a temp config file.
+
+**`check_ssh_key_passphrases` tests:**
+
+- `test_passphrases_no_keys_pass` — `~/.ssh/` is empty or contains only `.pub` and config files → PASS; raw contains `"No private keys found"`
+- `test_passphrases_all_protected_pass` — one private key file, `ssh-keygen -y` exits 1 with `"incorrect passphrase"` in stderr → PASS
+- `test_passphrases_unprotected_warn` — one private key file, `ssh-keygen -y` exits 0 with public key in stdout → WARN; raw lists the filename
+- `test_passphrases_ssh_dir_missing_pass` — `~/.ssh/` does not exist → PASS (treat as no keys)
+
+**`check_ssh_agent_forwarding` tests:**
+
+- `test_agent_forwarding_no_config_pass` — `~/.ssh/config` does not exist → PASS
+- `test_agent_forwarding_no_forward_pass` — config exists, no `ForwardAgent` line → PASS
+- `test_agent_forwarding_forward_warn` — config has `ForwardAgent yes` under `Host *` → WARN; raw lists the host pattern
+- `test_agent_forwarding_forward_case_insensitive` — `forwardagent Yes` (mixed case) → WARN
+
+**`check_ssh_key_strength` tests:**
+
+- `test_strength_no_pub_keys_pass` — `~/.ssh/` has no `.pub` files → PASS
+- `test_strength_ed25519_pass` — one `.pub` file, `ssh-keygen -l` returns `"256 SHA256:abc comment (ED25519)"` → PASS
+- `test_strength_rsa_4096_pass` — `"4096 SHA256:abc comment (RSA)"` → PASS
+- `test_strength_rsa_2048_warn` — `"2048 SHA256:abc comment (RSA)"` → WARN
+- `test_strength_dsa_fail` — `"1024 SHA256:abc comment (DSA)"` → FAIL
+- `test_strength_rsa_short_fail` — `"1024 SHA256:abc comment (RSA)"` → FAIL
+
+**Validation:** ✅ `pytest tests/test_ssh_hygiene.py -v` exits 0 — 19 passed. Full suite (`pytest`) exits 0 — 158 passed, no regressions.
+
+---
+
+### Step 29.5 — End-to-end dashboard check
+
+Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
+
+- Confirm all three new cards appear within the "Authentication" section.
+- Confirm badge colors and raw output reflect actual `~/.ssh/` contents on this machine.
+- Confirm total badge count is 32: `curl -s http://127.0.0.1:8000 | grep -c 'badge--'`
+- Confirm all 29 existing signal cards render correctly — no regressions.
+
+**Validation:** ✅ 32 total badges confirmed (`curl -s http://127.0.0.1:8000 | grep -c 'badge--'` → 32). SSH Key Passphrases → `badge--warn` (`"Unprotected keys: github_ed25519, gitlab_id_ed25519, id_ed25519"`) — correct, all three private keys on this machine lack passphrases. SSH Agent Forwarding → `badge--pass` — correct, no ForwardAgent in config. SSH Key Strength → `badge--pass` — correct, all keys are ED25519. All three appear in the Authentication category group alongside the two existing signals. All 29 pre-existing signals render correctly — no regressions.
+
+---
+
+### Step 29.6 — Update README and documentation
+
+- Add `"SSH Key Passphrases"`, `"SSH Agent Forwarding"`, and `"SSH Key Strength"` rows to the `### Authentication` table in `README.md`.
+- Add a Known Limitations entry for SSH Key Passphrases: only files in `~/.ssh/` are scanned; keys in non-standard locations are not detected. The passphrase check uses empty-stdin probing — a key file readable only by root will be skipped silently.
+- Add a Known Limitations entry for SSH Agent Forwarding: only `~/.ssh/config` is parsed; `/etc/ssh/ssh_config` and host-specific `Include` directives are not followed.
+- Add a Known Limitations entry for SSH Key Strength: only `.pub` files in `~/.ssh/` are scanned; private key files without a corresponding `.pub` are not checked (they are covered by the passphrase collector, not the strength collector). Certificate files (`-cert.pub`) may produce unexpected `ssh-keygen -l` output; treat parse failures as UNKNOWN per-file.
+- Update `docs/SIGNAL_GAPS.md` — strike through the SSH Key Hygiene entry and annotate as implemented in Phase 29.
+
+**Validation:** ✅ README `### Authentication` table has 5 rows (2 original + 3 new). Known Limitations entries added for SSH Key Passphrases, SSH Agent Forwarding, and SSH Key Strength (scope, no-Fix-button rationale). All three signals added to the "no Fix button" remediations table. `docs/SIGNAL_GAPS.md` SSH Key Hygiene entry struck through and annotated with implementation notes.
+
+---
+
+### Phase 29 Integration Validation
+
+- [x] `check_ssh_key_passphrases` returns PASS when no unprotected private keys exist
+- [x] `check_ssh_key_passphrases` returns WARN when at least one private key has no passphrase
+- [x] `check_ssh_key_passphrases` returns PASS when `~/.ssh/` is absent
+- [x] `check_ssh_agent_forwarding` returns PASS when `~/.ssh/config` is absent
+- [x] `check_ssh_agent_forwarding` returns PASS when config has no `ForwardAgent yes`
+- [x] `check_ssh_agent_forwarding` returns WARN when `ForwardAgent yes` is present and lists the host pattern in raw
+- [x] `check_ssh_key_strength` returns PASS when all keys are RSA ≥ 3072 or Ed25519
+- [x] `check_ssh_key_strength` returns WARN for RSA 2048–3071
+- [x] `check_ssh_key_strength` returns FAIL for DSA or RSA < 2048
+- [x] `check_ssh_key_strength` returns PASS when no `.pub` files are present
+- [x] All three signals appear in the "Authentication" category group on the dashboard
+- [x] All three signals return all five required dict keys (`name`, `description`, `status`, `raw`, `error`)
+- [x] No collector calls `sudo`
+- [x] `pytest tests/test_ssh_hygiene.py` exits 0 — all tests pass
+- [x] Full test suite (`pytest`) exits 0 — 158 passed, no regressions
+- [x] `docs/cli_verification.md` has the Phase 29 section with command output recorded
+- [x] README `### Authentication` table updated with all three new signals
+- [x] `docs/SIGNAL_GAPS.md` SSH Key Hygiene entry marked as implemented in Phase 29
+
+---
+
 ## Open Issues
 
 Issues identified after Phase 22. Each entry is classified as **Bug** (incorrect behavior), **Inconsistency** (code style/convention drift), or **Gap** (missing capability documented as a known limitation).

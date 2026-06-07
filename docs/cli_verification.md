@@ -1790,3 +1790,115 @@ resolver #1
 | No `nameserver[` lines in output | PASS |
 | All nameservers local or known DoH | PASS |
 | Any nameserver unrecognized public | WARN |
+
+---
+
+## Phase 29 — SSH Key Hygiene
+
+### Private key passphrase detection
+
+**SSH directory contents:**
+
+```
+$ ls -la ~/.ssh/
+total 72
+drwx------  12 scottrosenberg  staff   384 Feb 12 10:28 .
+drwxr-x---+ 77 scottrosenberg  staff  2464 Jun  7 06:48 ..
+drwx------   3 scottrosenberg  staff    96 Jun  4 06:28 agent
+-rw-------   1 scottrosenberg  staff   215 Nov  2  2024 config
+-rw-------   1 scottrosenberg  staff   411 Nov  2  2024 github_ed25519
+-rw-r--r--   1 scottrosenberg  staff   103 Nov  2  2024 github_ed25519.pub
+-rw-------   1 scottrosenberg  staff   399 Aug 24  2024 gitlab_id_ed25519
+-rw-r--r--   1 scottrosenberg  staff    94 Aug 24  2024 gitlab_id_ed25519.pub
+-rw-------   1 scottrosenberg  staff   419 Sep 20  2025 id_ed25519
+-rw-r--r--   1 scottrosenberg  staff   110 Sep 20  2025 id_ed25519.pub
+-rw-------   1 scottrosenberg  staff  1757 Sep 20  2025 known_hosts
+-rw-------   1 scottrosenberg  staff  1015 Sep 20  2025 known_hosts.old
+```
+
+Three private key files (`github_ed25519`, `gitlab_id_ed25519`, `id_ed25519`). One subdirectory (`agent/`) containing a socket file — not a regular file, excluded by the regular-file check.
+
+**`ssh-keygen -y` behavior with empty stdin (`< /dev/null`):**
+
+Unprotected key (exit 0 — stdout contains public key):
+```
+$ ssh-keygen -y -f ~/.ssh/github_ed25519 < /dev/null
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPQys42aRT/DQN1dUkZDBKlHDpcxa2M385JFw4sYv4h+ rsnbrgscott@gmail.com
+exit: 0
+```
+
+All three private keys on this machine exit 0 → all are unprotected. `check_ssh_key_passphrases` will return WARN listing all three filenames.
+
+Passphrase-protected key (verified with a temp key created as `ssh-keygen -N "testpass"`):
+```
+$ ssh-keygen -y -f /tmp/test_key < /dev/null 2>&1
+Enter passphrase for "/tmp/test_key": Load key "/tmp/test_key": incorrect passphrase supplied to decrypt private key
+exit: 255
+```
+
+Non-key file (exit 255 — stderr contains "invalid format"):
+```
+$ ssh-keygen -y -f ~/.ssh/known_hosts < /dev/null 2>&1
+Load key "/Users/scottrosenberg/.ssh/known_hosts": invalid format
+exit: 255
+$ ssh-keygen -y -f ~/.ssh/config < /dev/null 2>&1
+Load key "/Users/scottrosenberg/.ssh/config": invalid format
+exit: 255
+```
+
+**Passphrase detection decision logic:**
+
+| `subprocess.run` result | Classification |
+|------------------------|----------------|
+| exit 0, stdout has content | Unprotected private key — add to WARN list |
+| exit 255, stderr contains `"incorrect passphrase"` | Protected key — skip (good) |
+| exit 255, stderr contains `"invalid format"` | Not a key file — skip |
+| Exception (timeout, OSError) | UNKNOWN |
+
+Both protected keys and non-key files return exit 255 — must check stderr content to distinguish them.
+
+### SSH config — ForwardAgent check
+
+```
+$ cat ~/.ssh/config
+# Manually added
+Host gitlab.com
+  UseKeychain yes
+  AddKeysToAgent yes
+  IdentityFile ~/.ssh/gitlab_id_ed25519
+
+Host github.com
+  IgnoreUnknown UseKeyChain
+  AddKeysToAgent yes
+  IdentityFile ~/.ssh/github_ed25519
+
+$ grep -i "ForwardAgent" ~/.ssh/config
+exit: 1  (no matches)
+```
+
+No `ForwardAgent` entries on this machine. `check_ssh_agent_forwarding` will return PASS. The config uses `AddKeysToAgent yes` (adds key to ssh-agent on first use) and `UseKeychain yes` (macOS Keychain integration) — these are not agent forwarding and are not flagged.
+
+### SSH key algorithm strength
+
+```
+$ ssh-keygen -l -f ~/.ssh/github_ed25519.pub
+256 SHA256:Vt4RvqeJWTJabcNcVK80wg3zwcK/dfbB18QEwjNLtf8 rsnbrgscott@gmail.com (ED25519)
+
+$ ssh-keygen -l -f ~/.ssh/gitlab_id_ed25519.pub
+256 SHA256:O39siHQeBVhOoWiFkuxvczlFDG6cXiLuLBiOjMV887o GitLab_MBPro (ED25519)
+
+$ ssh-keygen -l -f ~/.ssh/id_ed25519.pub
+256 SHA256:cd2Z9FFCvfptQNgkrcPcx1KmQys9Cyt5FtG6m463PDc scottrosenberg@CDACND2321SVP (ED25519)
+```
+
+Output format: `<bits> SHA256:<fingerprint> <comment> (<ALGO>)` — first field is bit count (int), last parenthesized token is the algorithm. Parse with `re.search(r"\((\w+)\)\s*$", line)` to extract the algorithm token.
+
+All three keys are ED25519 (256-bit — PASS). `check_ssh_key_strength` will return PASS on this machine.
+
+**Implementation decisions:**
+
+- Private key candidate heuristic: regular file in `~/.ssh/`, no `.pub` extension, name not in `{"known_hosts", "known_hosts.old", "authorized_keys", "authorized_keys2", "config", "environment"}`. Skip the `agent/` subdirectory (it's a directory, not a regular file).
+- Use `subprocess.run(["ssh-keygen", "-y", "-f", str(path)], input=b"", capture_output=True, timeout=3)` directly (not `run_cmd`) because `input=b""` is needed to avoid interactive prompting.
+- Distinguish protected vs non-key files by checking stderr for `"incorrect passphrase"` substring.
+- SSH config parser: track current `Host` pattern, collect host patterns where `ForwardAgent yes` appears (case-insensitive on both keyword and value).
+- Key strength parser: extract bits from `int(line.split()[0])` and algorithm from the trailing `(ALGO)` token.

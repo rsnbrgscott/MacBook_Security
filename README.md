@@ -70,6 +70,9 @@ WARN on authentication signals means activity was detected — review if unexpec
 |--------|---------------|----------------|
 | **Failed Logins** | `log show` (loginwindow + sshd, past 24h) | Failed authentication attempts at the macOS login screen or via SSH. A WARN may be a mistyped password or an external probe — review the listed events. |
 | **SSH Authorized Keys** | `~/.ssh/authorized_keys` | Keys that allow passwordless remote login to this machine. If present, anyone holding a matching private key can SSH in. |
+| **SSH Key Passphrases** | `ssh-keygen -y` on `~/.ssh/*` | Private keys without a passphrase are single-file credentials — anyone who reads the file has the credential. WARN if any unprotected key is found. |
+| **SSH Agent Forwarding** | `~/.ssh/config` (file read) | `ForwardAgent yes` lets a remote host use your local SSH agent to authenticate to other systems. WARN if any host block enables it. |
+| **SSH Key Strength** | `ssh-keygen -l` on `~/.ssh/*.pub` | DSA and short RSA keys can be broken by well-resourced attackers. FAIL for DSA or RSA < 2048 bits; WARN for RSA 2048–3071; PASS for RSA ≥ 3072 or Ed25519. |
 
 ### User Accounts
 

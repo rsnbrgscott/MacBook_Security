@@ -32,22 +32,11 @@ Note: `wdutil info` requires `sudo` on macOS 15.5 — `system_profiler SPAirPort
 
 ---
 
-### SSH Key Hygiene *(add to Authentication)*
+### ~~SSH Key Hygiene~~ *(implemented — Phase 29)*
 
-**SSH Private Key Passphrase Protection**
-- Command: `ssh-keygen -y -f <keyfile>` on each private key file in `~/.ssh/`; a key with no passphrase returns the public key immediately (exit 0, no prompt); a protected key prompts for input (exit 1 or hangs — use `timeout`)
-- Logic: any unprotected private key → WARN with filenames; all protected or no keys → PASS
-- Notes: An unprotected private key is a single-file credential — anyone who reads the file has the credential. Requires careful timeout handling to avoid hanging on passphrase-protected keys. Do not include key material in `raw`.
+SSH Key Passphrases, SSH Agent Forwarding, and SSH Key Strength implemented in `src/collectors/auth.py` as `check_ssh_key_passphrases`, `check_ssh_agent_forwarding`, and `check_ssh_key_strength`. Added to the Authentication category. See Phase 29 in `docs/IMPLEMENTATION_PLAN.md`.
 
-**SSH Agent Forwarding in Config**
-- Command: read `~/.ssh/config`; parse for `ForwardAgent yes`
-- Logic: any host entry with `ForwardAgent yes` → WARN with matching host blocks; none → PASS
-- Notes: Agent forwarding to an untrusted host lets that host use your local keys. This is a pure file read — no subprocess needed.
-
-**SSH Key Algorithm Strength**
-- Command: `ssh-keygen -l -f <public key>` for each key in `~/.ssh/`
-- Logic: DSA or RSA < 2048 bits → FAIL; RSA 2048–3071 → WARN; RSA ≥ 3072, Ed25519, ECDSA-521 → PASS
-- Notes: DSA keys are unconditionally weak. Older RSA keys (1024-bit) are factored by state actors.
+Note: passphrase detection uses `ssh-keygen -y` with empty stdin (exit 0 → unprotected; exit 255 + "incorrect passphrase" → protected; exit 255 + "invalid format" → not a key file). All three private keys on the target machine are unprotected — SSH Key Passphrases shows WARN. SSH Agent Forwarding shows PASS (no ForwardAgent in config). SSH Key Strength shows PASS (all keys are Ed25519). No Fix buttons — see `docs/KNOWN_LIMITATIONS.md`.
 
 ---
 
