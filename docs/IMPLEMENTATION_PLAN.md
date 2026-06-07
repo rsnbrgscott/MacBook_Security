@@ -3754,6 +3754,224 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
 ---
 
+## Phase 28 — Wi-Fi & Network
+
+**Goal:** Add two signals to the existing "Network" category: Wi-Fi Security Type (PASS/WARN/FAIL based on the encryption protocol in use on the current wireless network) and DNS Configuration (PASS/WARN based on whether the active nameservers are local, known-secure public resolvers, or unrecognized public IPs). Both use native macOS CLI tools without `sudo`.
+
+**Signals added:**
+
+| Signal | Source | PASS | WARN | FAIL | UNKNOWN |
+|--------|--------|------|------|------|---------|
+| Wi-Fi Security | `system_profiler SPAirPortDataType` (fallback: `wdutil info`) | WPA3 or not connected | WPA2 | Open, WEP, or WPA1 | command failed or output unrecognized |
+| DNS Configuration | `scutil --dns` | all nameservers are local or known DoH-capable | any nameserver is an unrecognized public IP | — | command failed or output unrecognized |
+
+> **Why PASS for WPA3:** WPA3 mandates Simultaneous Authentication of Equals (SAE), replacing PSK handshakes that are vulnerable to offline dictionary attacks. WPA3 also provides per-session forward secrecy — a captured session cannot be decrypted even if the pre-shared key is later disclosed.
+
+> **Why WARN for WPA2:** WPA2-CCMP is cryptographically sound for most purposes but uses a shared pre-shared key handshake (four-way handshake) that is vulnerable to offline dictionary attacks if a weak passphrase is used, and lacks per-session forward secrecy. Still common and acceptable; surfaced as WARN to encourage migration.
+
+> **Why FAIL for Open, WEP, WPA1:** Open networks route all traffic in cleartext. WEP is broken at the protocol level and can be cracked in under a minute. WPA (TKIP) is deprecated and vulnerable to known attacks. Any of these is a direct security concern.
+
+> **Why PASS for not connected:** When Wi-Fi is disconnected, there is no active wireless network risk. PASS rather than UNKNOWN.
+
+> **DNS PASS for local nameservers:** A nameserver in RFC 1918 private space (10.x.x.x, 192.168.x.x, 172.16–31.x.x), loopback (127.x.x.x), or link-local (169.254.x.x, fe80::) is presumed to be a home/office router or a local resolver. The upstream behavior cannot be inspected without root, but local resolvers do not themselves eavesdrop.
+
+> **DNS PASS for known DoH resolvers:** A curated allowlist of public resolvers with documented DoH/DoT support: Cloudflare (1.1.1.1, 1.0.0.1), Google (8.8.8.8, 8.8.4.4), Quad9 (9.9.9.9, 149.112.112.112), OpenDNS (208.67.222.222, 208.67.220.220), AdGuard (94.140.14.14, 94.140.15.15).
+
+> **DNS WARN for unrecognized public IPs:** Any nameserver IP that is not local and not in the allowlist is an unrecognized public resolver. This commonly includes ISP-assigned DNS (which does not use DoH by default), corporate DNS pushed via VPN, or custom setups. The raw output lists the unrecognized IP(s) so the user can review.
+
+> **No Fix button for Phase 28:** The Wi-Fi security protocol is determined by the access point's configuration, not this machine's settings — it cannot be changed with a `defaults` write. DNS nameservers are pushed by the router via DHCP or set per-interface in Network Settings; no single command reliably sets them across all interfaces without side effects. Document both as Known Limitations.
+
+---
+
+### Step 28.1 — Verify CLI commands
+
+Run the following without `sudo` and record exact output in `docs/cli_verification.md` under `## Phase 28 — Wi-Fi & Network`.
+
+**Wi-Fi Security Type — primary candidate (`wdutil info`):**
+
+```zsh
+wdutil info
+```
+
+Verify: Does this run without `sudo` on macOS 15.5? If it requires root, note the exact error. Identify the field name for security protocol (expected: `Security :` or similar). Note the exact value format (e.g. `"WPA2 Personal"`, `"WPA3 Personal"`, `"Open"`). Record output when connected and when disconnected (Wi-Fi off or not associated).
+
+**Wi-Fi Security Type — fallback candidate (`system_profiler SPAirPortDataType`):**
+
+```zsh
+system_profiler SPAirPortDataType
+system_profiler SPAirPortDataType | grep -E "Security|Status|SSID"
+```
+
+Verify: Does a `Security:` field appear in `Current Network Information`? What are the exact values (e.g. `"WPA2 Personal"`, `"WPA3 Personal"`)?  What does the section look like when disconnected (Status field value)?
+
+**DNS Configuration:**
+
+```zsh
+scutil --dns
+scutil --dns | grep "nameserver\["
+```
+
+Verify: Exact format of nameserver lines (`nameserver[0] : 192.168.1.1` or similar). Are IPv6 nameservers shown in the same format? What does the output look like with no active network (Wi-Fi off)?
+
+Record the chosen command for each signal and the exact field names / value formats to use in parsing. If `wdutil info` works without root and exposes the security field, use it; otherwise use `system_profiler SPAirPortDataType`.
+
+**Validation:** ✅ `wdutil info` requires `sudo` on macOS 15.5 — rejected. `system_profiler SPAirPortDataType` runs without root (exit 0); field name is `Security:` inside `Current Network Information:` subsection; current machine: `Security: WPA2 Personal`. Critical hazard: `Security:` also appears for every network in `Other Local Wi-Fi Networks:` — parser must extract only the connected-network block. Not-connected state: `Current Network Information:` block is absent. `scutil --dns` exits 0; nameserver format: `nameserver[N] : <IP>`; current nameservers: `2600:100e:a025:452d:3a88:71ff:fe3f:76` (public IPv6, unrecognized — triggers WARN) and `192.168.1.1` (private IPv4, PASS). No interface suffix on nameserver IPv6 addresses. mDNS resolvers have no `nameserver[` lines. Nameservers duplicated in "scoped queries" section — must deduplicate. Results recorded in `docs/cli_verification.md § Phase 28`.
+
+---
+
+### Step 28.2 — Add `check_wifi_security()` and `check_dns_config()` to `src/collectors/network.py`
+
+Add both functions to the existing `src/collectors/network.py`. The file already imports `run_cmd` and `make_result`; add `run_cmd_rc` to the import if needed for exit-code checking (Wi-Fi command), and `import re`, `import ipaddress` at the top of the file.
+
+**`check_wifi_security()`:**
+
+- Name: `"Wi-Fi Security"`
+- Description: `"Wireless network encryption protocol in use on the currently associated network."`
+- Command: whichever was confirmed in Step 28.1 (primary: `wdutil info`; fallback: `["system_profiler", "SPAirPortDataType"]`), `timeout=10`
+
+Parsing logic (exact field names from Step 28.1):
+
+```
+Command fails (rc != 0 or exception)       → UNKNOWN; error: captured output or exception
+Not connected (no SSID / Security field)   → PASS;    raw: "Not connected"
+Security value contains "WPA3"             → PASS;    raw: "Security: <value>"
+Security value contains "WPA2"             → WARN;    raw: "Security: <value>"
+Security value is "Open" or "None"         → FAIL;    raw: "Security: Open"
+Security value contains "WEP"             → FAIL;    raw: "Security: <value>"
+Security value contains "WPA" (not WPA2/3) → FAIL;    raw: "Security: <value>"
+Unrecognized security value                → WARN;    raw: "Security: <value>"  (conservative: surface for review)
+```
+
+Use `re.search` on the confirmed field name from Step 28.1. Match the WPA3/WPA2/WEP/Open conditions in order (WPA3 before WPA2, to prevent a WPA3 value from matching the WPA2 branch).
+
+**`check_dns_config()`:**
+
+- Name: `"DNS Configuration"`
+- Description: `"Active DNS nameservers — unrecognized public resolvers cannot be assumed to use encrypted transport (DoH/DoT)."`
+- Command: `["scutil", "--dns"]`, `timeout=5`
+
+Known DoH-capable public resolver allowlist (top-level constant `_KNOWN_SECURE_DNS`):
+
+```python
+_KNOWN_SECURE_DNS = {
+    "1.1.1.1", "1.0.0.1",           # Cloudflare
+    "8.8.8.8", "8.8.4.4",           # Google
+    "9.9.9.9", "149.112.112.112",   # Quad9
+    "208.67.222.222", "208.67.220.220",  # OpenDNS
+    "94.140.14.14", "94.140.15.15", # AdGuard
+}
+```
+
+Parsing logic:
+
+```
+Command fails or exception              → UNKNOWN
+No nameserver lines in output           → PASS;  raw: "No nameservers configured"
+All nameservers: local or known DoH     → PASS;  raw: "nameservers: <comma-separated list>"
+Any nameserver: unrecognized public IP  → WARN;  raw: "nameservers: <all IPs>; unrecognized: <unknown IPs>"
+```
+
+Use `re.findall(r"nameserver\[\d+\]\s*:\s*(\S+)", out)` to extract IPs. Deduplicate with `dict.fromkeys()` to preserve order. Classify each IP with `ipaddress.ip_address(addr)`:
+- `.is_loopback`, `.is_private`, `.is_link_local` → local (safe)
+- addr in `_KNOWN_SECURE_DNS` → known DoH (safe)
+- anything else → unrecognized public
+
+Strip interface suffixes from IPv6 link-local addresses (e.g. `fe80::1%en0` → `fe80::1`) before passing to `ip_address()`.
+
+Add `if __name__ == "__main__":` smoke-test blocks (one per function) matching the convention in `network.py`.
+
+**Validation:** `.venv/bin/python src/collectors/network.py` runs both smoke tests without error. Wi-Fi Security result reflects actual connected network's encryption protocol. DNS Configuration result lists active nameservers and correctly classifies each.
+
+---
+
+### Step 28.3 — Register the collectors
+
+Update `src/collectors/__init__.py`:
+
+- Add `"Wi-Fi Security"` and `"DNS Configuration"` to the `"Network"` entry in `CATEGORIES` (append after `"Listening Services"`): `"Network": ["Application Firewall", "Stealth Mode", "Listening Services", "Wi-Fi Security", "DNS Configuration"]`
+- Append `check_wifi_security` and `check_dns_config` to `_COLLECTORS` after `check_listening_ports`. Add the imports from `.network` (the functions are already in the same module — just add them to the existing `from .network import ...` line).
+
+No changes to `app.py` or the template.
+
+**Validation:** `run_all_collectors()` returns 29 results (27 existing + 2 new). Both new signals appear in the `"Network"` category group on the dashboard. Result dicts contain all five required keys. No import errors.
+
+---
+
+### Step 28.4 — Add unit tests
+
+Create `tests/test_wifi_dns.py` following the existing test-file pattern. Mock `collectors.network.run_cmd_rc` (or `collectors.network.run_cmd`, whichever the implementation uses) and `collectors.network.subprocess` as needed.
+
+**`check_wifi_security` tests:**
+
+- `test_wifi_wpa3_pass` — Security field contains `"WPA3 Personal"` → PASS; raw contains `"WPA3"`
+- `test_wifi_wpa2_warn` — Security field contains `"WPA2 Personal"` → WARN; raw contains `"WPA2"`
+- `test_wifi_open_fail` — Security field is `"Open"` → FAIL
+- `test_wifi_wep_fail` — Security field contains `"WEP"` → FAIL
+- `test_wifi_not_connected_pass` — output has no SSID or Security field (disconnected) → PASS; raw `"Not connected"`
+- `test_wifi_command_fails_unknown` — command exception or rc != 0 → UNKNOWN
+
+**`check_dns_config` tests:**
+
+- `test_dns_local_resolver_pass` — nameservers are `192.168.1.1` only → PASS
+- `test_dns_known_doh_pass` — nameservers are `1.1.1.1` and `8.8.8.8` → PASS
+- `test_dns_mixed_known_pass` — nameservers are `192.168.1.1` and `9.9.9.9` → PASS
+- `test_dns_unrecognized_public_warn` — nameserver is `68.105.28.11` (ISP DNS) → WARN; raw lists the IP
+- `test_dns_no_nameservers_pass` — scutil succeeds but no `nameserver[` lines → PASS
+- `test_dns_command_fails_unknown` — command exception → UNKNOWN
+- `test_dns_ipv6_linklocal_pass` — nameserver is `fe80::1%en0` (link-local) → PASS
+
+**Validation:** `pytest tests/test_wifi_dns.py -v` exits 0 — all tests pass. Full suite (`pytest`) exits 0 — no regressions.
+
+---
+
+### Step 28.5 — End-to-end dashboard check
+
+Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
+
+- Confirm both new cards appear within the "Network" section.
+- Confirm `"Wi-Fi Security"` badge color and raw output match the actual connected network's encryption (e.g. WARN for WPA2, PASS for WPA3).
+- Confirm `"DNS Configuration"` badge color and raw output match the active nameservers (visible in Network Settings or `scutil --dns`).
+- Confirm total badge count is 29: `curl -s http://127.0.0.1:8000 | grep -c 'badge--'`
+- Confirm all 27 existing signal cards render correctly — no regressions.
+
+If the machine is connected to WPA2 Wi-Fi and using a local router for DNS (common case), expect: Wi-Fi Security → WARN, DNS Configuration → PASS.
+
+**Validation:** ✅ 29 total badges confirmed (`curl -s http://127.0.0.1:8000 | grep -c 'badge--'` → 29). Wi-Fi Security renders as `badge--warn` with raw `Security: WPA2 Personal` — correct for this machine. DNS Configuration renders as `badge--warn` with raw `nameservers: 2600:100e:a025:452d:3a88:71ff:fe3f:76, 192.168.1.1; unrecognized: 2600:100e:a025:452d:3a88:71ff:fe3f:76` — Comcast IPv6 gateway correctly classified as unrecognized public. Both cards appear in the "Network" category group. All 27 existing signal cards render correctly — no regressions.
+
+---
+
+### Step 28.6 — Update README and documentation
+
+- Add `"Wi-Fi Security"` and `"DNS Configuration"` rows to the `### Network` table in `README.md`.
+- Add a Known Limitations entry for Wi-Fi Security: the signal reflects the protocol of the currently associated network; if Wi-Fi is off or the machine is connected via Ethernet only, the signal returns PASS (not connected). No Fix button is provided — WPA security type is set on the access point, not the client.
+- Add a Known Limitations entry for DNS Configuration: the allowlist of known DoH-capable resolvers is static and may not include all encrypted public resolvers. A WARN does not confirm that DNS traffic is unencrypted — a router forwarding to a DoH upstream will appear as a local IP (PASS). A corporate DNS IP pushed via VPN may trigger a WARN even if DNS-over-TLS is in use.
+- Update `docs/SIGNAL_GAPS.md` — strike through the Wi-Fi & Network entry and annotate as implemented in Phase 28.
+
+**Validation:** ✅ README `### Network` table has 5 rows (3 original + 2 new). Known Limitations entries added for Wi-Fi Security (point-in-time, no Fix button) and DNS Configuration (IPv6 router false-WARN, static allowlist). Both signals added to the "no Fix button" remediations table. `docs/SIGNAL_GAPS.md` Wi-Fi & Network entry struck through and annotated with implementation notes including `wdutil info` root requirement and IPv6 false-WARN caveat.
+
+---
+
+### Phase 28 Integration Validation
+
+- [x] `check_wifi_security` returns PASS when WPA3 is in use
+- [x] `check_wifi_security` returns WARN when WPA2 is in use
+- [x] `check_wifi_security` returns FAIL when Open, WEP, or WPA1 is in use
+- [x] `check_wifi_security` returns PASS when Wi-Fi is not connected
+- [x] `check_wifi_security` degrades to UNKNOWN gracefully when the command fails or output is unrecognized
+- [x] `check_dns_config` returns PASS when all nameservers are local or known DoH-capable
+- [x] `check_dns_config` returns WARN when any nameserver is an unrecognized public IP
+- [x] `check_dns_config` degrades to UNKNOWN gracefully when `scutil --dns` fails
+- [x] Both signals appear in the "Network" category group on the dashboard
+- [x] Both signals return all five required dict keys (`name`, `description`, `status`, `raw`, `error`)
+- [x] No collector calls `sudo`
+- [x] `pytest tests/test_wifi_dns.py` exits 0 — all tests pass
+- [x] Full test suite (`pytest`) exits 0 — 139 passed, no regressions
+- [x] `docs/cli_verification.md` has the Phase 28 section with command output recorded
+- [x] README `### Network` table updated with both new signals
+- [x] `docs/SIGNAL_GAPS.md` Wi-Fi & Network entry marked as implemented in Phase 28
+
+---
+
 ## Open Issues
 
 Issues identified after Phase 22. Each entry is classified as **Bug** (incorrect behavior), **Inconsistency** (code style/convention drift), or **Gap** (missing capability documented as a known limitation).

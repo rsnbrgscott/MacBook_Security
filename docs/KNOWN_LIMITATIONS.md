@@ -68,6 +68,24 @@ An MDM configuration profile that enforces the screensaver timeout through a man
 
 **Path to resolve:** Replace the static filter with a dynamic check — compare against `dscl . list /Users` entries whose `UniqueID` is below 500 (system accounts on macOS use UIDs below 500 by convention). This makes the filter self-maintaining across OS updates.
 
+### Wi-Fi Security — point-in-time snapshot; current network only; no Fix button
+
+`check_wifi_security` reads the security protocol of the Wi-Fi network the machine is associated with at the moment the page loads. If Wi-Fi is off or the machine is connected via Ethernet only, the signal returns PASS — it cannot assess networks the user typically connects to but isn't currently on.
+
+No Fix button is provided. The encryption protocol (WPA2, WPA3, etc.) is a setting on the access point/router, not on this machine. Upgrading from WPA2 to WPA3 requires changing the wireless router's configuration.
+
+### DNS Configuration — IPv6 router addresses may trigger false WARN; static DoH allowlist
+
+`check_dns_config` classifies nameservers as local (RFC 1918, loopback, link-local, ULA fc00::/7) or known-DoH-capable public resolvers. Any other IP is flagged as "unrecognized public" and produces WARN.
+
+**IPv6 home router false-WARN:** Many ISPs (e.g. Comcast/Xfinity) assign globally-routable IPv6 addresses to the home gateway. When that gateway acts as a local DNS forwarder, its IPv6 address appears in `scutil --dns` as a nameserver. Because the address is a global unicast (e.g. `2600:100e::/32`), it is not recognized as a local device and triggers WARN — even though it is functionally equivalent to the router's private IPv4 address (192.168.1.1). There is no reliable way to determine from the IP address alone whether a globally-routable IPv6 belongs to a local device or a remote public server.
+
+**Static DoH allowlist:** The set of known DoH-capable public resolvers is hardcoded (Cloudflare, Google, Quad9, OpenDNS, AdGuard). Regional DoH resolvers, enterprise DoH deployments, NextDNS user-specific endpoints, and any newly launched DoH services not in the list will trigger WARN even if they use encrypted DNS transport.
+
+**Path to resolve (IPv6):** Compare the nameserver IPv6 prefix against the machine's own IPv6 prefix on the active interface (`networksetup -getinfo Wi-Fi` or `ifconfig en0`). If the nameserver shares a /64 with the machine, it is almost certainly a local device. Adds interface-querying complexity without eliminating all ambiguity.
+
+**Path to resolve (allowlist):** Read an additional allowlist from a user-configurable file (e.g. `~/.config/macbook_security/dns_allowlist.txt`). Adds configuration surface without solving the underlying IPv6 problem.
+
 ### Bluetooth — point-in-time snapshot; no Fix button
 
 `check_bluetooth` reads the Bluetooth controller state at the moment the page loads. Discoverability on macOS reverts to `Off` automatically after approximately 3 minutes of inactivity following a pairing session. A brief discoverable window that opens and closes between dashboard loads will not be detected.
@@ -101,6 +119,8 @@ Fix buttons require commands that are single-flag toggles, fully reversible from
 | Listening Services | No single command to "fix" an arbitrary listening service; remediation is service-specific |
 | Persistence signals | Removing launch agents or daemons requires knowing which entries are unwanted — not automatable |
 | Authentication signals | Failed logins and SSH authorized keys require user judgment; no safe automated action |
+| Wi-Fi Security | Encryption protocol is set on the access point/router, not this machine — no local command changes it |
+| DNS Configuration | Nameservers are pushed by DHCP or set per-interface in System Settings → Network; no single command reliably sets them across all interfaces |
 
 ---
 

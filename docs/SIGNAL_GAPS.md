@@ -24,17 +24,11 @@ Implemented in `src/collectors/bluetooth.py` as `check_bluetooth`. Added as a ne
 
 ---
 
-### Wi-Fi & Network *(add to Network)*
+### ~~Wi-Fi & Network~~ *(implemented — Phase 28)*
 
-**Current Wi-Fi Security Type**
-- Command: `wdutil info` (requires no root on macOS 13+; parses `Security` field)
-- Logic: Open or WEP → FAIL; WPA2 → WARN; WPA3 → PASS; not connected → PASS
-- Notes: Connected to an open network routes all traffic in cleartext. WEP is cryptographically broken.
+Wi-Fi Security Type and DNS Configuration implemented in `src/collectors/network.py` as `check_wifi_security` and `check_dns_config`. Added to the Network category. See Phase 28 in `docs/IMPLEMENTATION_PLAN.md`.
 
-**DNS Configuration**
-- Command: `scutil --dns`
-- Logic: WARN if any nameserver is a cleartext public resolver that has no known DoH/DoT support; PASS if using a local resolver or known secure resolver
-- Notes: Detection of "secure" resolvers requires a maintained allowlist (1.1.1.1, 8.8.8.8, 9.9.9.9, 208.67.222.222). False-positive risk is high; consider WARN-always with raw output for user review instead.
+Note: `wdutil info` requires `sudo` on macOS 15.5 — `system_profiler SPAirPortDataType` is used instead. DNS allowlist covers Cloudflare, Google, Quad9, OpenDNS, and AdGuard; IPv6 home router addresses with globally-routable prefixes (e.g. Comcast gateway) will WARN — see `docs/KNOWN_LIMITATIONS.md`.
 
 ---
 

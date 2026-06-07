@@ -14,6 +14,8 @@ from .network import (
     check_firewall,
     check_stealth_mode,
     check_listening_ports,
+    check_wifi_security,
+    check_dns_config,
 )
 from .persistence import (
     check_user_launch_agents,
@@ -51,7 +53,7 @@ from .external import check_macos_version
 
 CATEGORIES: list[tuple[str, list[str]]] = [
     ("System Integrity", ["System Integrity Protection", "Gatekeeper", "FileVault", "Secure Boot"]),
-    ("Network", ["Application Firewall", "Stealth Mode", "Listening Services"]),
+    ("Network", ["Application Firewall", "Stealth Mode", "Listening Services", "Wi-Fi Security", "DNS Configuration"]),
     ("Persistence", ["User Launch Agents", "Global Launch Agents", "Launch Daemons", "Login Items"]),
     ("Authentication", ["Failed Logins", "SSH Authorized Keys"]),
     ("User Accounts", ["Guest Account", "Login Window Display", "Admin Group Members"]),
@@ -71,6 +73,8 @@ _COLLECTORS = [
     check_firewall,
     check_stealth_mode,
     check_listening_ports,
+    check_wifi_security,
+    check_dns_config,
     check_user_launch_agents,
     check_global_launch_agents,
     check_launch_daemons,

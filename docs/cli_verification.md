@@ -1573,3 +1573,220 @@ Cannot be tested on this machine (Bluetooth hardware always present on Apple Sil
 | `rc=0`, `State: On`, no `Discoverable:` field | UNKNOWN |
 | `rc=0`, `State: On`, `Discoverable: Yes` | FAIL |
 | `rc=0`, `State: On`, `Discoverable: Off` | WARN |
+
+---
+
+## Phase 28 — Wi-Fi & Network
+
+**Platform:** macOS 15.5 (Sequoia), Apple Silicon (Mac15,9)
+
+---
+
+### Wi-Fi Security Type — command selection
+
+#### `wdutil info` (rejected — requires root)
+
+```
+$ wdutil info
+usage: sudo wdutil diagnose [-q] [-f outputDirectoryPath]
+            -q may be specified to suppress legal prompt and Finder window
+       sudo wdutil info
+       sudo wdutil log [{+|-} {system|wifi}]+
+       sudo wdutil dump
+       sudo wdutil clean
+       sudo wdutil privateMAC={0/1}
+```
+
+`wdutil info` requires `sudo` on macOS 15.5. Cannot use in collectors (no-sudo constraint). Rejected.
+
+---
+
+#### `system_profiler SPAirPortDataType` (chosen — no root required)
+
+**Exit code:** 0 (always, even when no Wi-Fi hardware present — returns empty `Wi-Fi:` block)
+
+**Full output structure (Wi-Fi connected, SSID redacted):**
+
+```
+Wi-Fi:
+
+      Software Versions:
+          CoreWLAN: 16.0 (1657)
+          CoreWLANKit: 16.0 (1657)
+          Menu Extra: 1.0 (19150.2)
+          System Information: 15.0 (1502)
+          IO80211 Family: 12.0 (1200.13.1)
+          Diagnostics: 11.0 (1163)
+          AirPort Utility: 6.3.9 (639.29)
+      Interfaces:
+        en0:
+          Card Type: Wi-Fi  (0x14E4, 0x4388)
+          Firmware Version: wl0: Feb  2 2026 19:18:00 version 23.50.20.0.41.51.208 ...
+          MAC Address: 16:70:fa:8a:1b:5d
+          Locale: FCC
+          Country Code: US
+          Supported PHY Modes: 802.11 a/b/g/n/ac/ax
+          Supported Channels: 1 (2GHz), ... (truncated)
+          Wake On Wireless: Supported
+          AirDrop: Supported
+          Auto Unlock: Supported
+          Status: Connected
+          Current Network Information:
+            <SSID>:
+              PHY Mode: 802.11ax
+              Channel: 149 (5GHz, 80MHz)
+              Country Code: US
+              Network Type: Infrastructure
+              Security: WPA2 Personal
+              Signal / Noise: -63 dBm / -94 dBm
+              Transmit Rate: 243
+              MCS Index: 14
+          Other Local Wi-Fi Networks:
+            <SSID>:
+              PHY Mode: 802.11g/n
+              Channel: 6 (2GHz, 20MHz)
+              Network Type: Infrastructure
+              Security: WPA2 Personal
+            ... (additional nearby networks, each with Security: field)
+        awdl0:
+          MAC Address: 66:45:bc:7b:da:87
+          Supported Channels: ... (truncated)
+          Current Network Information:
+              Network Type: Infrastructure
+```
+
+**Field observations:**
+
+- **Connection status:** `Status: Connected` appears inside the `en0:` interface block. When Wi-Fi is off or not associated, this line reads `Status: Not Associated` or is absent.
+- **Security field name:** `Security:` (exact, no alternatives observed). Value: `WPA2 Personal` (connected network). Other observed values on nearby networks: `WPA2 Personal`, `WPA/WPA2 Personal`.
+- **Structural hazard:** `Security:` appears in **both** `Current Network Information:` (the connected network) **and** `Other Local Wi-Fi Networks:` (each nearby network). A naive `re.search(r"Security:\s+(.+)", out)` would return the connected network's value because it appears first — but this is fragile. Safer: extract the text between `Current Network Information:` and `Other Local Wi-Fi Networks:` and search only within that block.
+- **`awdl0` interface:** Also has a `Current Network Information:` block but contains only `Network Type: Infrastructure` — no `Security:` field.
+- **Not-connected state:** `Current Network Information:` block is absent; `Status: Connected` becomes `Status: Not Associated` or absent.
+
+**Confirmed grep results:**
+
+```
+$ system_profiler SPAirPortDataType | grep -E "Status:|Security:"
+          Status: Connected
+              Security: WPA2 Personal        ← connected network (Current Network Information:)
+              Security: WPA2 Personal        ← nearby network 1 (Other Local Wi-Fi Networks:)
+              Security: WPA2 Personal        ← nearby network 2
+              Security: WPA2 Personal        ← nearby network 3
+              Security: WPA2 Personal        ← nearby network 4
+              Security: WPA/WPA2 Personal    ← nearby network with mixed-mode
+              ... (additional nearby networks)
+```
+
+---
+
+### DNS Configuration
+
+#### `scutil --dns`
+
+**Exit code:** 0
+
+**Full output:**
+
+```
+DNS configuration
+
+resolver #1
+  search domain[0] : mynetworksettings.com
+  nameserver[0] : 2600:100e:a025:452d:3a88:71ff:fe3f:76
+  nameserver[1] : 192.168.1.1
+  if_index : 14 (en0)
+  flags    : Request A records, Request AAAA records
+  reach    : 0x00020002 (Reachable,Directly Reachable Address)
+
+resolver #2
+  domain   : local
+  options  : mdns
+  timeout  : 5
+  flags    : Request A records, Request AAAA records
+  reach    : 0x00000000 (Not Reachable)
+  order    : 300000
+
+resolver #3
+  domain   : 254.169.in-addr.arpa
+  options  : mdns
+  timeout  : 5
+  flags    : Request A records, Request AAAA records
+  reach    : 0x00000000 (Not Reachable)
+  order    : 300200
+
+... (resolvers #4–7 are mDNS for IPv6 reverse zones — no nameserver lines)
+
+DNS configuration (for scoped queries)
+
+resolver #1
+  search domain[0] : mynetworksettings.com
+  nameserver[0] : 2600:100e:a025:452d:3a88:71ff:fe3f:76
+  nameserver[1] : 192.168.1.1
+  if_index : 14 (en0)
+  flags    : Scoped, Request A records, Request AAAA records
+  reach    : 0x00020002 (Reachable,Directly Reachable Address)
+```
+
+**Field observations:**
+
+- **Nameserver line format:** `  nameserver[N] : <IP>` — two leading spaces, then `nameserver`, then `[N]`, then ` : `, then the IP. No trailing interface suffix (no `%en0` on IPv6 addresses).
+- **IPv4 nameserver:** `192.168.1.1` — private RFC 1918 address (local router). Python `ipaddress.ip_address("192.168.1.1").is_private` → `True`.
+- **IPv6 nameserver:** `2600:100e:a025:452d:3a88:71ff:fe3f:76` — global unicast IPv6 (public). `ipaddress.ip_address("2600:100e:a025:452d:3a88:71ff:fe3f:76").is_private` → `False`. This is the Comcast/Xfinity gateway device's globally-routable IPv6 address acting as a local DNS forwarder (same role as 192.168.1.1 for IPv4), but it is not identifiable as "local" from the address alone — it is not RFC 1918, ULA (fc00::/7), or link-local (fe80::/10). Classification: **unrecognized public** → WARN.
+- **Duplicates:** The same nameserver IPs appear in both the main section and the "for scoped queries" section. Must deduplicate before classifying.
+- **mDNS resolvers (resolvers #2–7):** These have domain/options/timeout but no `nameserver[` lines. The `re.findall(r"nameserver\[\d+\]\s*:\s*(\S+)", out)` pattern safely ignores them.
+- **No-network case:** When Wi-Fi is off, `scutil --dns` still exits 0 but returns only mDNS resolvers (no `nameserver[` lines). `re.findall` returns an empty list → PASS ("No nameservers configured").
+
+---
+
+### Implementation decisions
+
+**Wi-Fi Security Type:**
+
+- **Command:** `["system_profiler", "SPAirPortDataType"]`, `timeout=10`. `wdutil info` rejected (requires root).
+- **Not-connected detection:** check `"Current Network Information:" not in out` or `"Status: Connected" not in out`. If not connected → PASS, raw `"Not connected"`.
+- **Parsing — connected network only:** extract the slice of output between `Current Network Information:` and `Other Local Wi-Fi Networks:`, then apply `re.search(r"Security:\s+(.+)", section)`. This prevents picking up Security values from nearby networks.
+- **Regex:** `re.search(r"Current Network Information:(.*?)Other Local Wi-Fi Networks:", out, re.DOTALL)` to extract the connected-network section. Fall back to everything after `Current Network Information:` if `Other Local Wi-Fi Networks:` is absent (no nearby networks).
+- **Security value matching** (checked in order to prevent WPA3 matching WPA2 branch):
+  1. `"WPA3"` in value → PASS
+  2. `"WPA2"` in value → WARN
+  3. `"WEP"` in value → FAIL
+  4. `value.strip().lower() in ("open", "none", "")` → FAIL
+  5. `"WPA"` in value (catches WPA1 / WPA/WPA2 mixed) → FAIL
+  6. Anything else → WARN (unknown protocol; surface for review)
+- **`raw`:** `"Security: <value>"` — never the full output (contains MAC addresses and channel data).
+
+**DNS Configuration:**
+
+- **Command:** `["scutil", "--dns"]`, `timeout=5`.
+- **Parsing:** `re.findall(r"nameserver\[\d+\]\s*:\s*(\S+)", out)` — extracts all nameserver IPs, including from the "scoped queries" section. Deduplicate with `list(dict.fromkeys(...))` to preserve first-seen order.
+- **Classification (per IP):**
+  - `ipaddress.ip_address(ip).is_loopback` → local
+  - `ipaddress.ip_address(ip).is_private` → local (covers RFC 1918, ULA fc00::/7)
+  - `ipaddress.ip_address(ip).is_link_local` → local (covers fe80::/10, 169.254.x.x)
+  - ip in `_KNOWN_SECURE_DNS` → known DoH-capable public resolver
+  - otherwise → unrecognized public
+- **`_KNOWN_SECURE_DNS` constant:** `{"1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9", "149.112.112.112", "208.67.222.222", "208.67.220.220", "94.140.14.14", "94.140.15.15"}`
+- **`ipaddress.ip_address()` can raise `ValueError` for malformed IPs** — wrap in try/except and treat parse failures as unrecognized.
+- **`raw` format:** `"nameservers: <comma-separated list>"` or `"nameservers: <all>; unrecognized: <unknown IPs>"` — never more than the IP list.
+
+**Status mapping — Wi-Fi Security:**
+
+| Condition | Status |
+|-----------|--------|
+| Command fails or exception | UNKNOWN |
+| Not connected (`Current Network Information:` absent) | PASS |
+| Security value contains `"WPA3"` | PASS |
+| Security value contains `"WPA2"` | WARN |
+| Security value is Open/None/empty | FAIL |
+| Security value contains `"WEP"` | FAIL |
+| Security value contains `"WPA"` (WPA1 / mixed) | FAIL |
+| Unrecognized value | WARN |
+
+**Status mapping — DNS Configuration:**
+
+| Condition | Status |
+|-----------|--------|
+| Command fails or exception | UNKNOWN |
+| No `nameserver[` lines in output | PASS |
+| All nameservers local or known DoH | PASS |
+| Any nameserver unrecognized public | WARN |
