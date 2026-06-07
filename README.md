@@ -102,6 +102,12 @@ WARN on authentication signals means activity was detected — review if unexpec
 | **Shell History Key Exposure** | `~/.zsh_history` and `~/.bash_history` — scanned for AI key value patterns (`sk-` OpenAI prefix, `sk-ant-api` Anthropic prefix, `AIza` Google prefix) | Keys typed or pasted in the terminal are saved in shell history in plaintext and readable by any process running as your user. WARN if any match is found; the raw output shows a count of matches only — never the matched strings. |
 | **Local AI Server Exposure** | `lsof` checks whether Ollama (port 11434) or LM Studio (port 1234) is listening on all network interfaces (`*`) vs. loopback only (`127.0.0.1`) | A local LLM server bound to all interfaces is reachable by any host on your network and can receive arbitrary prompts. The default for both tools is loopback-only. Exposure usually means `OLLAMA_HOST=0.0.0.0` was set. FAIL if any AI server is network-accessible; PASS if all are loopback-only or not running. |
 
+### Bluetooth
+
+| Signal | What it checks | Why it matters |
+|--------|---------------|----------------|
+| **Bluetooth** | `system_profiler SPBluetoothDataType` — parses `State:` (power) and `Discoverable:` fields from the Bluetooth controller section | A discoverable Bluetooth radio broadcasts this machine's presence to any nearby scanner and accepts connection requests from unpaired devices. PASS if Bluetooth is off; WARN if on but not discoverable (typical with paired peripherals); FAIL if on and discoverable. |
+
 ### External (opt-in)
 
 These signals make outbound network requests and are disabled by default. Enable with `EXTERNAL_CALLS=1`.
@@ -160,6 +166,7 @@ MacBook_Security/
 │   │   ├── sharing.py           # Remote Login, Screen Sharing, AirDrop
 │   │   ├── hygiene.py           # Automatic Updates, Root Certificate Trust, Screen Lock, Screensaver Idle Timeout
 │   │   ├── ai.py                # AI API Keys in Shell Config, Shell History Key Exposure, Local AI Server Exposure
+│   │   ├── bluetooth.py         # Bluetooth power state and discoverability
 │   │   └── external.py          # macOS Version (opt-in, requires EXTERNAL_CALLS=1)
 │   ├── alerting/
 │   │   ├── __init__.py          # start_alerter() — background polling thread

@@ -18,12 +18,9 @@ Implemented in `src/collectors/hygiene.py` as `check_screensaver_idle_timeout`. 
 
 ---
 
-### Bluetooth *(new category)*
+### ~~Bluetooth~~ *(implemented — Phase 27)*
 
-**Bluetooth Power & Discoverability**
-- Command: `system_profiler SPBluetoothDataType` (no external dependency)
-- Logic: power off → PASS; power on + not discoverable → WARN; power on + discoverable → FAIL
-- Notes: A discoverable Bluetooth device is an attack surface. `blueutil` gives cleaner output but requires Homebrew. `system_profiler` is always present. Parse `"State: On/Off"` and `"Discoverable: Yes/No"` from output.
+Implemented in `src/collectors/bluetooth.py` as `check_bluetooth`. Added as a new "Bluetooth" category. See Phase 27 in `docs/IMPLEMENTATION_PLAN.md`.
 
 ---
 

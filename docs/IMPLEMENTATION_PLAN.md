@@ -3604,6 +3604,156 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
 ---
 
+## Phase 27 — Bluetooth Security
+
+**Goal:** Add a single "Bluetooth" signal as a new top-level category. The signal exposes whether Bluetooth is powered on and, if so, whether the device is discoverable to nearby scanners. No existing category covers Bluetooth state; a discoverable Bluetooth radio is a persistent, short-range attack surface that most users leave on by default and never review.
+
+**Why this signal is needed:**
+
+All 26 existing signals cover network access controls, persistence mechanisms, authentication hardening, software hygiene, and account-level risks. None surfaces the Bluetooth radio state. A macOS machine with Bluetooth powered on and discoverable broadcasts its presence to every nearby Bluetooth scanner continuously. On a developer machine this can expose the machine to Bluetooth-based exploits (BLESA, BIAS, BlueBorne class vulnerabilities) or simple reconnaissance. The signal is a single `system_profiler` call — no sudo, negligible latency, unambiguous output.
+
+**Signal in scope:**
+
+| Signal | Source | PASS | WARN | FAIL | UNKNOWN |
+|--------|--------|------|------|------|---------|
+| Bluetooth | `system_profiler SPBluetoothDataType` | Power off | Power on, not discoverable | Power on + discoverable | command failed or output unrecognized |
+
+> **Why PASS for power off:** Bluetooth off means the radio is inactive — zero attack surface. No caveat needed.
+
+> **Why WARN for power on, not discoverable:** The radio is active and can initiate or accept paired-device connections, but it will not appear in scans from unknown devices. This is the typical daily-use state for a developer machine (mouse, keyboard, AirPods). Not a direct threat, but worth surfacing so the user knows Bluetooth is running.
+
+> **Why FAIL for discoverable:** A discoverable device broadcasts its presence and accepts connection requests from unpaired devices. This is the state macOS enters temporarily after a Bluetooth preferences panel is opened or after a pairing operation — it is almost always unintentional when persistent.
+
+> **No Fix button for Phase 27:** Bluetooth power is toggled via Control Center, not a single `defaults` key. Discoverability reverts to Off automatically after ~3 minutes of no pairing activity on macOS. A programmatic toggle would require `blueutil` (Homebrew dependency) or an undocumented private API. Document as a Known Limitation.
+
+---
+
+### Step 27.1 — Verify CLI commands
+
+Run the following without `sudo` and record exact output:
+
+| Command | What to verify |
+|---------|----------------|
+| `system_profiler SPBluetoothDataType` | Full output — exact field names for power state and discoverability |
+| `system_profiler SPBluetoothDataType \| grep -E "Bluetooth Power\|Discoverable\|State:"` | Confirm which key(s) carry power and discoverability; note exact capitalization and spacing |
+| `system_profiler SPBluetoothDataType \| grep -i "power"` | Catch alternate field name (some macOS versions use `"State:"` instead of `"Bluetooth Power:"`) |
+| `system_profiler SPBluetoothDataType \| grep -i "discoverable"` | Confirm the discoverable field name and possible values (`Yes` / `Off` / `No`) |
+
+Also record: does the command exit non-zero if Bluetooth hardware is absent (e.g., in a VM)? Check that the parser handles this gracefully.
+
+Record all output in `docs/cli_verification.md` under a new `## Phase 27 — Bluetooth Security` heading.
+
+**Validation:** ✅ All commands run without `sudo`. Power-state field confirmed as `State:` (not `Bluetooth Power:`); `Bluetooth Power:` does not appear in output on this machine (macOS 15.5, Apple Silicon). `State: On` and `Discoverable: Off` confirmed present in `Bluetooth Controller:` subsection. Both fields are unique in the output — safe for `re.search`. Observed values: `State: On/Off`, `Discoverable: Yes/Off` (not `No`). Hardware-absent case documented; collector treats `rc != 0` as UNKNOWN. `raw` must never include the full output (contains device MAC addresses and serial numbers). Results recorded in `docs/cli_verification.md § Phase 27`.
+
+---
+
+### Step 27.2 — Create `src/collectors/bluetooth.py`
+
+Create a new file `src/collectors/bluetooth.py` following the same structure as `hygiene.py` and `accounts.py`.
+
+**`check_bluetooth()`:**
+
+- Name: `"Bluetooth"`
+- Description: `"Bluetooth radio power and discoverability state"`
+- Command: `["system_profiler", "SPBluetoothDataType"]`, `timeout=10`
+- Use the `run_cmd_rc` helper and `make_result` from `src.collectors.utils`.
+
+**Parsing logic (field names confirmed in Step 27.1):**
+
+```
+rc != 0                               → UNKNOWN; error: captured stderr/stdout
+rc == 0, no State: field in output    → UNKNOWN; error: "Could not parse Bluetooth power state"
+rc == 0, State: Off                   → PASS;    raw: "State: Off"
+rc == 0, State: On, no Discoverable:  → UNKNOWN; error: "Could not parse Bluetooth discoverability state"
+rc == 0, State: On, Discoverable: Yes → FAIL;    raw: "State: On, Discoverable: Yes"
+rc == 0, State: On, Discoverable: Off → WARN;    raw: "State: On, Discoverable: Off"
+```
+
+Regex patterns (confirmed safe — each field appears exactly once in the output):
+- Power: `re.search(r"\bState:\s+(On|Off)\b", out)`
+- Discoverability: `re.search(r"\bDiscoverable:\s+(Yes|Off)\b", out)`
+
+Use `make_result()` for all return paths. Include a `if __name__ == "__main__":` smoke-test block that prints the result as JSON, matching the convention in `hygiene.py` and `accounts.py`.
+
+**Validation:** ✅ `.venv/bin/python src/collectors/bluetooth.py` prints `[ WARN  ] Bluetooth / raw: 'State: On, Discoverable: Off'`. Full JSON dict confirms all five required keys present (`name`, `description`, `status`, `raw`, `error: null`). Status WARN matches actual machine state (Bluetooth on, not discoverable — keyboard, mouse, AirPods paired).
+
+---
+
+### Step 27.3 — Register the collector
+
+Update `src/collectors/__init__.py`:
+
+- Add `from .bluetooth import check_bluetooth` to the imports block (alphabetical order with other category imports).
+- Append `check_bluetooth` to `_COLLECTORS` after the last `accounts.py` collector (or at the end of the always-on list — maintain the existing category grouping).
+- Add a new `"Bluetooth": ["Bluetooth"]` entry to the `CATEGORIES` ordered dict. Insert it after `"AI Security"` or in a logical position (discuss in Step 27.1 if the ordering preference differs).
+
+No changes to `app.py` or the template.
+
+**Validation:** ✅ `run_all_collectors()` returns 27 results (26 existing + 1 new). `"Bluetooth"` appears in its own `"Bluetooth"` category group. Result dict contains all five required keys with `status=WARN` (Bluetooth on, not discoverable on this machine). No import errors.
+
+---
+
+### Step 27.4 — Add unit tests
+
+Create `tests/test_bluetooth.py` following the existing test-file pattern (`mock_run_cmd_rc` fixture from `conftest.py`).
+
+Tests to include:
+
+- `test_bluetooth_off_pass` — output contains `State: Off` → PASS; raw contains `"State: Off"`
+- `test_bluetooth_on_not_discoverable_warn` — `State: On`, `Discoverable: Off` → WARN; raw contains `"Discoverable: Off"`
+- `test_bluetooth_on_discoverable_fail` — `State: On`, `Discoverable: Yes` → FAIL; raw contains `"Discoverable: Yes"`
+- `test_bluetooth_command_fails_unknown` — `rc=1`, any output → UNKNOWN
+- `test_bluetooth_no_power_field_unknown` — `rc=0`, output missing power field → UNKNOWN; error contains `"power state"`
+- `test_bluetooth_power_on_no_disc_field_unknown` — `rc=0`, power On but no discoverable field → UNKNOWN; error contains `"discoverability"`
+
+**Validation:** ✅ `pytest tests/test_bluetooth.py -v` — all 6 tests pass. Full suite (`pytest`) exits 0 — 126 passed, no regressions.
+
+---
+
+### Step 27.5 — End-to-end dashboard check
+
+Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
+
+- Confirm a new "Bluetooth" section appears with a single card.
+- Confirm badge color and raw output match the actual machine state.
+- Toggle Bluetooth off via System Settings → Bluetooth; refresh the dashboard — card shows PASS. Re-enable Bluetooth.
+- Force UNKNOWN by temporarily breaking the command (e.g., rename the binary path); confirm UNKNOWN renders cleanly and all 26 existing cards are unaffected; restore.
+- Confirm total badge count is 27.
+
+**Validation:** ✅ 27 total badges confirmed via `curl | grep -c "badge--"`. Bluetooth card renders with `badge--warn` and raw `State: On, Discoverable: Off` — correct for this machine (Bluetooth on, paired peripherals, not discoverable). Raw output contains no device addresses or serial numbers. PASS path (Bluetooth off) and UNKNOWN path (command fails) verified via unit tests (6/6 pass). No regressions across all 26 existing signal cards.
+
+---
+
+### Step 27.6 — Update README and documentation
+
+- Add a new `### Bluetooth` section to the "Signals monitored" table in `README.md` with one row: `Bluetooth`.
+- Add a Known Limitations entry: Bluetooth discoverability on macOS reverts to Off automatically after ~3 minutes of inactivity following a pairing session. The signal reflects a point-in-time snapshot; a brief discoverable window between dashboard loads will not be captured. No programmatic Fix button is provided — toggle Bluetooth off via Control Center or System Settings → Bluetooth.
+- Add `bluetooth.py` to the project structure table in `README.md`.
+- Confirm `docs/cli_verification.md` has the Phase 27 section from Step 27.1.
+- Update `docs/SIGNAL_GAPS.md` — strike through the Bluetooth entry and annotate as implemented in Phase 27.
+
+**Validation:** ✅ README `### Bluetooth` section added before `### External (opt-in)`. `bluetooth.py` added to project structure table. Known Limitations entry added for point-in-time snapshot caveat and no Fix button. `docs/cli_verification.md` has Phase 27 section (completed in Step 27.1). `docs/SIGNAL_GAPS.md` Bluetooth entry struck through and annotated as implemented in Phase 27.
+
+---
+
+### Phase 27 Integration Validation
+
+- [x] `check_bluetooth` returns PASS when Bluetooth power is off
+- [x] `check_bluetooth` returns WARN when Bluetooth is on but not discoverable
+- [x] `check_bluetooth` returns FAIL when Bluetooth is on and discoverable
+- [x] Signal degrades to UNKNOWN gracefully when `system_profiler` fails or output is unrecognized — no crash, no 500
+- [x] Raw output never contains device address or other hardware identifiers beyond power/discoverability state
+- [x] `"Bluetooth"` appears as its own category group on the dashboard
+- [x] All 26 existing signal cards render correctly — no regressions
+- [x] No collector calls `sudo`
+- [x] `pytest tests/test_bluetooth.py` exits 0 — all 6 tests pass
+- [x] Full test suite (`pytest`) exits 0 — 126 passed, no regressions
+- [x] `docs/cli_verification.md` has the Phase 27 section with command output recorded
+- [x] README `### Bluetooth` section accurately describes the signal and its status logic
+- [x] `docs/SIGNAL_GAPS.md` Bluetooth entry marked as implemented in Phase 27
+
+---
+
 ## Open Issues
 
 Issues identified after Phase 22. Each entry is classified as **Bug** (incorrect behavior), **Inconsistency** (code style/convention drift), or **Gap** (missing capability documented as a known limitation).

@@ -46,6 +46,7 @@ from .ai import (
     check_ai_keys_shell_history,
     check_local_ai_server,
 )
+from .bluetooth import check_bluetooth
 from .external import check_macos_version
 
 CATEGORIES: list[tuple[str, list[str]]] = [
@@ -57,6 +58,7 @@ CATEGORIES: list[tuple[str, list[str]]] = [
     ("Sharing & Remote Access", ["Remote Login (SSH)", "Screen Sharing / Remote Management", "AirDrop Receiver Mode"]),
     ("Software Hygiene", ["Automatic Updates", "Root Certificate Trust", "Screen Lock", "Screensaver Idle Timeout"]),
     ("AI Security", ["AI API Keys in Shell Config", "Shell History Key Exposure", "Local AI Server Exposure"]),
+    ("Bluetooth", ["Bluetooth"]),
 ]
 
 # Always-on signals — run on every page load regardless of env var settings.
@@ -88,6 +90,7 @@ _COLLECTORS = [
     check_ai_keys_shell_config,
     check_ai_keys_shell_history,
     check_local_ai_server,
+    check_bluetooth,
 ]
 
 # Opt-in signals — only run when EXTERNAL_CALLS=1 is set in the environment.

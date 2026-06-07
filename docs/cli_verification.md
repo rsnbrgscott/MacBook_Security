@@ -1457,3 +1457,119 @@ Machine restored to baseline (key absent).
 | `0 < int(value) <= 600` | PASS |
 | `int(value) > 600` | WARN |
 | `rc != 0` and error not "does not exist", or non-integer output | UNKNOWN |
+
+---
+
+## Phase 27 — Bluetooth Security
+
+### Command verification
+
+**Full output — field names and structure:**
+
+```
+$ system_profiler SPBluetoothDataType; echo "rc=$?"
+Bluetooth:
+
+      Bluetooth Controller:
+          Address: 60:3E:5F:4A:37:27
+          State: On
+          Chipset: BCM_4388
+          Discoverable: Off
+          Firmware Version: 23.5.574.4423
+          Product ID: 0x4A2F
+          Supported services: 0x392039 < HFP AVRCP A2DP HID Braille LEA AACP GATT SerialPort >
+          Transport: PCIe
+          Vendor ID: 0x004C (Apple)
+      Connected:
+          [... device entries with Address, Vendor ID, Firmware Version, Serial Number fields ...]
+      Not Connected:
+          [... device entries with Address and RSSI fields ...]
+
+rc=0
+```
+
+Note: `Connected:` and `Not Connected:` sections contain device MAC addresses and serial numbers (e.g., `Serial Number: H19FD6P80C6L`). These must never appear in the signal's `raw` field.
+
+---
+
+**Exact field name grep — power state and discoverability:**
+
+```
+$ system_profiler SPBluetoothDataType | grep -E "State:|Discoverable:|Bluetooth Power"
+          State: On
+          Discoverable: Off
+```
+
+**Finding: the power-state field is `State:` — not `Bluetooth Power:`.**  
+The SIGNAL_GAPS.md note was a rough approximation; the actual field is `State: On/Off` under the `Bluetooth Controller:` subsection (10-space indentation). `Bluetooth Power:` does not appear in the output on this machine (macOS 15.5, Apple Silicon).
+
+---
+
+**grep for alternate power field name:**
+
+```
+$ system_profiler SPBluetoothDataType | grep -i "power"
+(no output)
+```
+
+`"power"` does not appear anywhere in the output. `State:` is the only power-state field.
+
+---
+
+**grep for discoverable field and values:**
+
+```
+$ system_profiler SPBluetoothDataType | grep -i "discoverable"
+          Discoverable: Off
+```
+
+`Discoverable:` appears exactly once, under `Bluetooth Controller:`. The value on this machine is `Off` (Bluetooth on, not discoverable — expected state). The SIGNAL_GAPS.md note listed `Yes/No` as possible values; actual values observed are `Off` (not discoverable) and `Yes` (discoverable). `No` has not been observed and is not expected — macOS uses `Off`/`Yes`.
+
+---
+
+**Field uniqueness — does `State:` appear more than once?**
+
+```
+$ system_profiler SPBluetoothDataType | grep "State:"
+          State: On
+```
+
+`State:` appears exactly once in the full output (the controller-level field). Device entries in the `Connected:` and `Not Connected:` sections do not use a `State:` key. A simple `re.search(r"\bState:\s+(On|Off)\b", out)` is safe.
+
+---
+
+**Exit code — command succeeds:**
+
+```
+$ system_profiler SPBluetoothDataType > /dev/null; echo "rc=$?"
+rc=0
+```
+
+`rc=0` when Bluetooth hardware is present and the command completes normally.
+
+---
+
+**Hardware-absent / failure case:**
+
+Cannot be tested on this machine (Bluetooth hardware always present on Apple Silicon). Documented behavior: `system_profiler` exits non-zero and produces an error message when the requested data type is unavailable. The collector treats `rc != 0` as UNKNOWN.
+
+---
+
+### Implementation decisions
+
+- **Power-state field is `State:` not `Bluetooth Power:`.** Update the plan's collector description accordingly.
+- **Regex for power state:** `re.search(r"\bState:\s+(On|Off)\b", out)` — unique in the output.
+- **Regex for discoverability:** `re.search(r"\bDiscoverable:\s+(Yes|Off)\b", out)` — unique in the output; observed values are `Off` and `Yes` (not `No`).
+- **`raw` must contain only parsed values** — never the full `system_profiler` output, which contains device MAC addresses and serial numbers.
+- **`rc=0`** → parse power field. **`rc != 0`** → UNKNOWN with captured stderr/stdout as error.
+
+**Status mapping confirmed:**
+
+| Condition | Status |
+|-----------|--------|
+| `rc != 0` | UNKNOWN |
+| `rc=0`, no `State:` field in output | UNKNOWN |
+| `rc=0`, `State: Off` | PASS |
+| `rc=0`, `State: On`, no `Discoverable:` field | UNKNOWN |
+| `rc=0`, `State: On`, `Discoverable: Yes` | FAIL |
+| `rc=0`, `State: On`, `Discoverable: Off` | WARN |

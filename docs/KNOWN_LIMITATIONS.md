@@ -68,6 +68,12 @@ An MDM configuration profile that enforces the screensaver timeout through a man
 
 **Path to resolve:** Replace the static filter with a dynamic check — compare against `dscl . list /Users` entries whose `UniqueID` is below 500 (system accounts on macOS use UIDs below 500 by convention). This makes the filter self-maintaining across OS updates.
 
+### Bluetooth — point-in-time snapshot; no Fix button
+
+`check_bluetooth` reads the Bluetooth controller state at the moment the page loads. Discoverability on macOS reverts to `Off` automatically after approximately 3 minutes of inactivity following a pairing session. A brief discoverable window that opens and closes between dashboard loads will not be detected.
+
+No Fix button is provided. Bluetooth power is toggled via Control Center or **System Settings → Bluetooth**, and discoverability is not directly settable via a documented command-line interface without third-party tools (e.g. `blueutil`, a Homebrew dependency). Toggle Bluetooth off manually if the signal shows FAIL.
+
 ### AI Security signals — limited detection scope
 
 **Shell config check** covers 12 known AI provider key variable names (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, and eight others). Keys stored under non-standard names, loaded via a password manager CLI (e.g. `op run --`), sourced from a `.env` file in a project directory, or set in a tool-specific config file (e.g. `~/.config/gh/hosts.yml`) are not detected.
