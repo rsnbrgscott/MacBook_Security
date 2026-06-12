@@ -2907,7 +2907,7 @@ Addresses Gap G2.
 
 ---
 
-### Step 23.1 — Add pytest and create test infrastructure
+### Step 23.1 — Add pytest and create test infrastructure ✅
 
 **Add pytest to `requirements.txt`:**
 
@@ -2957,7 +2957,7 @@ tests/
 
 ---
 
-### Step 23.2 — Write unit tests for each collector module
+### Step 23.2 — Write unit tests for each collector module ✅
 
 Create one test file per collector module. Each file covers every status branch of every `check_*` function in that module. The complete list is:
 
@@ -3012,7 +3012,7 @@ Create one test file per collector module. Each file covers every status branch 
 
 ---
 
-### Step 23.3 — Write integration smoke tests
+### Step 23.3 — Write integration smoke tests ✅
 
 Create `tests/test_routes.py`. Use the `flask_client` fixture from `conftest.py`.
 
@@ -3102,7 +3102,7 @@ def test_security_headers_present(flask_client):
 
 ---
 
-### Step 24.1 — Verify CLI commands and data sources
+### Step 24.1 — Verify CLI commands and data sources ✅
 
 Without `sudo`, run each candidate command and record the exact output for both the match and no-match cases:
 
@@ -3135,7 +3135,7 @@ Key findings:
 
 ---
 
-### Step 24.2 — Write the AI security collector module
+### Step 24.2 — Write the AI security collector module ✅
 
 Create `src/collectors/ai.py` with three functions:
 
@@ -3179,7 +3179,7 @@ WARN path smoke-tested by injecting a temp file with `export OPENAI_API_KEY=sk-.
 
 ---
 
-### Step 24.3 — Register AI security collectors
+### Step 24.3 — Register AI security collectors ✅
 
 Update `src/collectors/__init__.py`:
 - Add `from .ai import check_ai_keys_shell_config, check_ai_keys_shell_history, check_local_ai_server`
@@ -3192,7 +3192,7 @@ No changes to `app.py` or the template.
 
 ---
 
-### Step 24.4 — Add unit tests for the AI security collectors
+### Step 24.4 — Add unit tests for the AI security collectors ✅
 
 Add `tests/test_ai.py` following the existing test-file pattern (`mock_run_cmd_rc` fixture from `conftest.py`; `tmp_path` for filesystem tests).
 
@@ -3221,7 +3221,7 @@ Tests to include:
 
 ---
 
-### Step 24.5 — End-to-end dashboard check
+### Step 24.5 — End-to-end dashboard check ✅
 
 Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
@@ -3235,7 +3235,7 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
 ---
 
-### Step 24.6 — Update README and documentation
+### Step 24.6 — Update README and documentation ✅
 
 - Add signals under a new `### AI Security` heading in the Signals monitored section of `README.md`.
 - Add a Known Limitations entry noting that the shell config check covers only the listed key variable names — keys stored under non-standard names, in Keychain, in a password manager CLI, or in project-level `.env` files are not detected. Similarly, the history check covers specific key value patterns; obfuscated or base64-encoded keys are not detected.
@@ -3299,7 +3299,7 @@ These three checks share a common property: they are each a single `defaults rea
 
 ---
 
-### Step 25.1 — Verify CLI commands
+### Step 25.1 — Verify CLI commands ✅
 
 Run each candidate command without `sudo` and record the exact output for both the match and no-match cases:
 
@@ -3319,7 +3319,7 @@ Record all output in `docs/cli_verification.md` under a new `## Phase 25 — Use
 
 ---
 
-### Step 25.2 — Write the User Accounts collector module
+### Step 25.2 — Write the User Accounts collector module ✅
 
 Create `src/collectors/accounts.py` with three functions:
 
@@ -3360,7 +3360,7 @@ Add a `__main__` block at the bottom for direct smoke-testing.
 
 ---
 
-### Step 25.3 — Register User Account collectors
+### Step 25.3 — Register User Account collectors ✅
 
 Update `src/collectors/__init__.py`:
 - Add `from .accounts import check_guest_account, check_login_window_display, check_admin_group_members`
@@ -3373,7 +3373,7 @@ No changes to `app.py` or the template.
 
 ---
 
-### Step 25.4 — Add unit tests for the User Account collectors
+### Step 25.4 — Add unit tests for the User Account collectors ✅
 
 Add `tests/test_accounts.py` following the existing test-file pattern (use `mock_run_cmd_rc` fixture from `conftest.py`).
 
@@ -3401,7 +3401,7 @@ Add `tests/test_accounts.py` following the existing test-file pattern (use `mock
 
 ---
 
-### Step 25.5 — End-to-end dashboard check
+### Step 25.5 — End-to-end dashboard check ✅
 
 Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
@@ -3414,7 +3414,7 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
 ---
 
-### Step 25.6 — Update README and documentation
+### Step 25.6 — Update README and documentation ✅
 
 - Add signals under a new `### User Accounts` section in the Signals monitored table in `README.md`.
 - Add a Known Limitations entry for `check_admin_group_members` noting that it filters a fixed list of known system accounts — a future macOS version introducing a new system account not in the filter list could produce a false WARN.
@@ -3471,7 +3471,7 @@ The three existing Software Hygiene signals (`check_automatic_updates`, `check_r
 
 ---
 
-### Step 26.1 — Verify CLI command
+### Step 26.1 — Verify CLI command ✅
 
 Run the following without `sudo` and record exact output:
 
@@ -3499,7 +3499,7 @@ Key findings:
 
 ---
 
-### Step 26.2 — Add the collector to `hygiene.py`
+### Step 26.2 — Add the collector to `hygiene.py` ✅
 
 Add `check_screensaver_idle_timeout()` to `src/collectors/hygiene.py` alongside the three existing Software Hygiene checks.
 
@@ -3528,7 +3528,7 @@ Results on this machine (key absent at baseline):
 
 ---
 
-### Step 26.3 — Register the collector
+### Step 26.3 — Register the collector ✅
 
 Update `src/collectors/__init__.py`:
 - Add `check_screensaver_idle_timeout` to the existing `from .hygiene import ...` line
@@ -3541,7 +3541,7 @@ No changes to `app.py` or the template.
 
 ---
 
-### Step 26.4 — Add unit tests
+### Step 26.4 — Add unit tests ✅
 
 Add `tests/test_screensaver.py` following the existing test-file pattern (`mock_run_cmd_rc` fixture from `conftest.py`).
 
@@ -3560,7 +3560,7 @@ Tests to include:
 
 ---
 
-### Step 26.5 — End-to-end dashboard check
+### Step 26.5 — End-to-end dashboard check ✅
 
 Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
@@ -3574,7 +3574,7 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
 ---
 
-### Step 26.6 — Update README and documentation
+### Step 26.6 — Update README and documentation ✅
 
 - Add `Screensaver Idle Timeout` to the Software Hygiene row in the Signals monitored table in `README.md`.
 - Add a Known Limitations entry: `idleTime` is read from the ByHost preference domain (`-currentHost`) for the current user. An MDM policy that controls the screensaver through a configuration profile may override the effective timeout without writing to this key; in that case the signal may return PASS while the device-level policy enforces a different value.
@@ -3628,7 +3628,7 @@ All 26 existing signals cover network access controls, persistence mechanisms, a
 
 ---
 
-### Step 27.1 — Verify CLI commands
+### Step 27.1 — Verify CLI commands ✅
 
 Run the following without `sudo` and record exact output:
 
@@ -3647,7 +3647,7 @@ Record all output in `docs/cli_verification.md` under a new `## Phase 27 — Blu
 
 ---
 
-### Step 27.2 — Create `src/collectors/bluetooth.py`
+### Step 27.2 — Create `src/collectors/bluetooth.py` ✅
 
 Create a new file `src/collectors/bluetooth.py` following the same structure as `hygiene.py` and `accounts.py`.
 
@@ -3679,7 +3679,7 @@ Use `make_result()` for all return paths. Include a `if __name__ == "__main__":`
 
 ---
 
-### Step 27.3 — Register the collector
+### Step 27.3 — Register the collector ✅
 
 Update `src/collectors/__init__.py`:
 
@@ -3693,7 +3693,7 @@ No changes to `app.py` or the template.
 
 ---
 
-### Step 27.4 — Add unit tests
+### Step 27.4 — Add unit tests ✅
 
 Create `tests/test_bluetooth.py` following the existing test-file pattern (`mock_run_cmd_rc` fixture from `conftest.py`).
 
@@ -3710,7 +3710,7 @@ Tests to include:
 
 ---
 
-### Step 27.5 — End-to-end dashboard check
+### Step 27.5 — End-to-end dashboard check ✅
 
 Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
@@ -3724,7 +3724,7 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
 ---
 
-### Step 27.6 — Update README and documentation
+### Step 27.6 — Update README and documentation ✅
 
 - Add a new `### Bluetooth` section to the "Signals monitored" table in `README.md` with one row: `Bluetooth`.
 - Add a Known Limitations entry: Bluetooth discoverability on macOS reverts to Off automatically after ~3 minutes of inactivity following a pairing session. The signal reflects a point-in-time snapshot; a brief discoverable window between dashboard loads will not be captured. No programmatic Fix button is provided — toggle Bluetooth off via Control Center or System Settings → Bluetooth.
@@ -3783,7 +3783,7 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
 ---
 
-### Step 28.1 — Verify CLI commands
+### Step 28.1 — Verify CLI commands ✅
 
 Run the following without `sudo` and record exact output in `docs/cli_verification.md` under `## Phase 28 — Wi-Fi & Network`.
 
@@ -3819,7 +3819,7 @@ Record the chosen command for each signal and the exact field names / value form
 
 ---
 
-### Step 28.2 — Add `check_wifi_security()` and `check_dns_config()` to `src/collectors/network.py`
+### Step 28.2 — Add `check_wifi_security()` and `check_dns_config()` to `src/collectors/network.py` ✅
 
 Add both functions to the existing `src/collectors/network.py`. The file already imports `run_cmd` and `make_result`; add `run_cmd_rc` to the import if needed for exit-code checking (Wi-Fi command), and `import re`, `import ipaddress` at the top of the file.
 
@@ -3884,7 +3884,7 @@ Add `if __name__ == "__main__":` smoke-test blocks (one per function) matching t
 
 ---
 
-### Step 28.3 — Register the collectors
+### Step 28.3 — Register the collectors ✅
 
 Update `src/collectors/__init__.py`:
 
@@ -3897,7 +3897,7 @@ No changes to `app.py` or the template.
 
 ---
 
-### Step 28.4 — Add unit tests
+### Step 28.4 — Add unit tests ✅
 
 Create `tests/test_wifi_dns.py` following the existing test-file pattern. Mock `collectors.network.run_cmd_rc` (or `collectors.network.run_cmd`, whichever the implementation uses) and `collectors.network.subprocess` as needed.
 
@@ -3924,7 +3924,7 @@ Create `tests/test_wifi_dns.py` following the existing test-file pattern. Mock `
 
 ---
 
-### Step 28.5 — End-to-end dashboard check
+### Step 28.5 — End-to-end dashboard check ✅
 
 Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
@@ -3940,7 +3940,7 @@ If the machine is connected to WPA2 Wi-Fi and using a local router for DNS (comm
 
 ---
 
-### Step 28.6 — Update README and documentation
+### Step 28.6 — Update README and documentation ✅
 
 - Add `"Wi-Fi Security"` and `"DNS Configuration"` rows to the `### Network` table in `README.md`.
 - Add a Known Limitations entry for Wi-Fi Security: the signal reflects the protocol of the currently associated network; if Wi-Fi is off or the machine is connected via Ethernet only, the signal returns PASS (not connected). No Fix button is provided — WPA security type is set on the access point, not the client.
@@ -3994,7 +3994,7 @@ If the machine is connected to WPA2 Wi-Fi and using a local router for DNS (comm
 
 ---
 
-### Step 29.1 — Verify CLI commands
+### Step 29.1 — Verify CLI commands ✅
 
 Run the following without `sudo` and record exact output in `docs/cli_verification.md` under `## Phase 29 — SSH Key Hygiene`.
 
@@ -4031,7 +4031,7 @@ Verify: Exact output format for each key type. Confirm the parenthesized algorit
 
 ---
 
-### Step 29.2 — Add three collectors to `src/collectors/auth.py`
+### Step 29.2 — Add three collectors to `src/collectors/auth.py` ✅
 
 Add three functions to the existing `src/collectors/auth.py`. The file already imports `make_result`; add `import subprocess` if not already imported (for passphrase and strength checks), and `import pathlib` for directory traversal. Use `run_cmd` only where it fits; call `subprocess.run()` directly for passphrase detection (requires `input=b""` to avoid interactive prompting).
 
@@ -4077,7 +4077,7 @@ Add three functions to the existing `src/collectors/auth.py`. The file already i
 
 ---
 
-### Step 29.3 — Register the collectors
+### Step 29.3 — Register the collectors ✅
 
 Update `src/collectors/__init__.py`:
 
@@ -4091,7 +4091,7 @@ No changes to `app.py` or the template.
 
 ---
 
-### Step 29.4 — Add unit tests
+### Step 29.4 — Add unit tests ✅
 
 Create `tests/test_ssh_hygiene.py`. The three collectors use `subprocess.run` directly (not `run_cmd`), so mock `collectors.auth.subprocess.run`. For `check_ssh_agent_forwarding`, mock `pathlib.Path.read_text` or use `tmp_path` to write a temp config file.
 
@@ -4122,7 +4122,7 @@ Create `tests/test_ssh_hygiene.py`. The three collectors use `subprocess.run` di
 
 ---
 
-### Step 29.5 — End-to-end dashboard check
+### Step 29.5 — End-to-end dashboard check ✅
 
 Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
@@ -4135,7 +4135,7 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
 ---
 
-### Step 29.6 — Update README and documentation
+### Step 29.6 — Update README and documentation ✅
 
 - Add `"SSH Key Passphrases"`, `"SSH Agent Forwarding"`, and `"SSH Key Strength"` rows to the `### Authentication` table in `README.md`.
 - Add a Known Limitations entry for SSH Key Passphrases: only files in `~/.ssh/` are scanned; keys in non-standard locations are not detected. The passphrase check uses empty-stdin probing — a key file readable only by root will be skipped silently.
@@ -4186,7 +4186,7 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
 ---
 
-### Step 30.1 — Verify CLI commands
+### Step 30.1 — Verify CLI commands ✅
 
 Run the following without `sudo` and record exact output in `docs/cli_verification.md` under `## Phase 30 — Listening Services: Add UDP`.
 
@@ -4208,7 +4208,7 @@ Record the full raw output for at least: `lsof -iUDP -P -n` and the filtered ver
 
 ---
 
-### Step 30.2 — Update `check_listening_ports` in `src/collectors/network.py`
+### Step 30.2 — Update `check_listening_ports` in `src/collectors/network.py` ✅
 
 Extend the function to run both TCP and UDP `lsof` queries and merge their results.
 
@@ -4242,7 +4242,7 @@ Extend the function to run both TCP and UDP `lsof` queries and merge their resul
 
 ---
 
-### Step 30.3 — Update unit tests in `tests/test_network.py`
+### Step 30.3 — Update unit tests in `tests/test_network.py` ✅
 
 Add test cases for the new UDP path. Do not modify existing TCP tests — they must continue to pass.
 
@@ -4259,7 +4259,7 @@ New test cases:
 
 ---
 
-### Step 30.4 — Update documentation
+### Step 30.4 — Update documentation ✅
 
 - Update `docs/cli_verification.md` § Phase 30 if any behavior differed from Step 30.1 expectations.
 - Update the `check_listening_ports` docstring in `src/collectors/network.py` to reference both TCP and UDP.
