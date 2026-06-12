@@ -1324,7 +1324,7 @@ Update `src/collectors/__init__.py` to import and append the new sharing collect
 
 ---
 
-### Step 14.4 — End-to-end dashboard check
+### Step 14.4 — End-to-end dashboard check ✅
 
 Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
@@ -1337,7 +1337,7 @@ Launch `.venv/bin/python src/app.py` and open `http://127.0.0.1:8000`.
 
 ---
 
-### Step 14.5 — Update README and documentation
+### Step 14.5 — Update README and documentation ✅
 
 - Add new signals to the "Signals monitored" section under a new `### Sharing & Remote Access` heading.
 - If any signals were deferred (not checkable without root), add a Known Limitations entry explaining why.
@@ -2683,7 +2683,7 @@ The `threads=4` value matches the concurrency needs of a single-user local dashb
 
 ---
 
-### Step 22.1 — Extract `_run()` helpers to `src/collectors/utils.py`
+### Step 22.1 — Extract `_run()` helpers to `src/collectors/utils.py` ✅
 
 Create `src/collectors/utils.py` with both variants of `_run()` that are currently copy-pasted across all six collector files.
 
@@ -2736,7 +2736,7 @@ In each of the six collector files:
 
 ---
 
-### Step 22.2 — Add `_result()` factory to `src/collectors/utils.py`
+### Step 22.2 — Add `_result()` factory to `src/collectors/utils.py` ✅
 
 Add a result-builder function to `src/collectors/utils.py`:
 
@@ -2765,7 +2765,7 @@ from .utils import run_cmd_rc, make_result       # sharing, hygiene
 
 ---
 
-### Step 22.3 — Extract Jinja2 card macro in `dashboard.html`
+### Step 22.3 — Extract Jinja2 card macro in `dashboard.html` ✅
 
 Lines 44–83 (categorized signals loop body) and lines 94–133 (uncategorized signals loop body) in `templates/dashboard.html` are byte-for-byte identical. Extract the card HTML into a Jinja2 macro at the top of the template body (after `<body>`, before `<header>`):
 
@@ -2819,7 +2819,7 @@ Both loops become:
 
 ---
 
-### Step 22.4 — Extract JS elapsed-time counter to `static/js/utils.js`
+### Step 22.4 — Extract JS elapsed-time counter to `static/js/utils.js` ✅
 
 The "time since page loaded" counter IIFE appears in both `dashboard.html` (label prefix `"Last checked:"`) and `history.html` (label prefix `"Loaded:"`). The only difference is the prefix string.
 
@@ -4283,6 +4283,121 @@ New test cases:
 - [x] Dashboard renders correctly — "Listening Services" card shows updated description and merged raw output; badge count 32 unchanged
 - [x] `docs/cli_verification.md` has Phase 30 section with recorded command output
 - [x] `docs/SIGNAL_GAPS.md` "Listening Services — add UDP" entry struck through and annotated with Phase 30
+
+---
+
+## Phase 31 — Local AI Server: Expand Port Coverage
+
+**Goal:** The `check_local_ai_server` collector currently monitors only Ollama (11434) and LM Studio (1234). Several other widely-used local AI inference servers default to different ports and are invisible to the current signal. Expand `_AI_PORTS` in `src/collectors/ai.py` to cover the five additional services identified in `docs/SIGNAL_GAPS.md`.
+
+**Approach:** Add five entries to the existing `_AI_PORTS` dict. No logic changes are needed — the per-port loop, FAIL/PASS classification, and raw output format already handle arbitrary port additions correctly. Update the description string and the "no servers found" fallback message to reflect the broader coverage.
+
+**Signal change (no new signal):**
+
+| Signal | Before | After |
+|--------|--------|-------|
+| Local AI Server Exposure | Ports 11434, 1234 | Ports 11434, 1234, 7860, 8080, 3000, 5000, 11435 |
+
+> **No Fix button:** There is no single-command remediation for an arbitrary AI server binding. The user must reconfigure the server (e.g., unset `OLLAMA_HOST`) or stop the process manually.
+
+---
+
+### Step 31.1 — Verify CLI commands ✅
+
+Run the following without `sudo` and record exact output in `docs/cli_verification.md` under `## Phase 31 — Local AI Server: Expand Port Coverage`.
+
+```zsh
+lsof -nP -iTCP:7860 -sTCP:LISTEN
+lsof -nP -iTCP:8080 -sTCP:LISTEN
+lsof -nP -iTCP:3000 -sTCP:LISTEN
+lsof -nP -iTCP:5000 -sTCP:LISTEN
+lsof -nP -iTCP:11435 -sTCP:LISTEN
+```
+
+Verify:
+- Does each command return exit code 1 (no process) or 0 (process found) cleanly without `sudo`?
+- If any port is in use on this machine, record the NAME field format to confirm the existing `*:` / `127.0.0.1:` parser handles it correctly.
+- Note which ports (if any) are actively in use, so test mocks can reflect realistic output.
+
+Record the full raw output for each command.
+
+---
+
+### Step 31.2 — Update `_AI_PORTS` in `src/collectors/ai.py` ✅
+
+Add the five new entries to the `_AI_PORTS` dict:
+
+```python
+_AI_PORTS: dict[int, str] = {
+    11434: "Ollama",
+    1234: "LM Studio",
+    7860: "Gradio / text-generation-webui",
+    8080: "open-webui",
+    3000: "LocalAI",
+    5000: "llama.cpp server",
+    11435: "Ollama (alternate port)",
+}
+```
+
+Update the `desc` string in `check_local_ai_server` to list the broader set of covered services:
+
+```python
+desc = (
+    "A local AI model server (Ollama, LM Studio, Gradio, open-webui, LocalAI, "
+    "llama.cpp) bound to all interfaces is accessible to any host on your "
+    "network and can receive arbitrary prompts. The default is loopback-only; "
+    "exposure usually means a host environment variable was set intentionally "
+    "or accidentally."
+)
+```
+
+Update the "no servers found" fallback raw output message at the end of the function to list all monitored ports.
+
+**Validation:** `check_local_ai_server()` runs without error. The signal card on the dashboard shows the updated description. Raw output shows entries (or "not running") for all seven ports.
+
+---
+
+### Step 31.3 — Update unit tests in `tests/test_ai.py` ✅
+
+The existing tests mock `run_cmd_rc` for specific ports. Verify that the existing FAIL and PASS test cases still pass after the dict expansion (they mock by port number, so new ports should not break them).
+
+Add new test cases:
+
+- `test_local_ai_server_gradio_exposed_fail`: mock port 7860 returning a `*:7860` binding → status is `FAIL`
+- `test_local_ai_server_open_webui_exposed_fail`: mock port 8080 returning a `*:8080` binding → status is `FAIL`
+- `test_local_ai_server_localai_exposed_fail`: mock port 3000 returning a `*:3000` binding → status is `FAIL`
+- `test_local_ai_server_llamacpp_exposed_fail`: mock port 5000 returning a `*:5000` binding → status is `FAIL`
+- `test_local_ai_server_ollama_alt_exposed_fail`: mock port 11435 returning a `*:11435` binding → status is `FAIL`
+- `test_local_ai_server_all_new_ports_not_running_pass`: mock all five new ports returning rc=1 (not running) → status is `PASS`
+
+**Validation:** `pytest tests/test_ai.py` exits 0 — all new and existing tests pass.
+
+---
+
+### Step 31.4 — Update documentation ✅
+
+- Update `docs/cli_verification.md` § Phase 31 if any behavior differed from Step 31.1 expectations.
+- Update the `check_local_ai_server` docstring in `src/collectors/ai.py` to list all seven covered ports and services.
+- Strike through the "Local AI Server — expand port coverage" entry in `docs/SIGNAL_GAPS.md` and annotate as implemented in Phase 31.
+
+**Validation:** `docs/SIGNAL_GAPS.md` entry struck through and annotated. Docstring updated.
+
+---
+
+### Phase 31 Integration Validation
+
+- [x] `check_local_ai_server()` returns all five required dict keys (`name`, `description`, `status`, `raw`, `error`)
+- [x] `_AI_PORTS` contains exactly seven entries covering ports 11434, 1234, 7860, 8080, 3000, 5000, 11435
+- [x] Raw output lists an entry (running or "not running") for each of the seven ports
+- [x] Status is `FAIL` when any of the seven ports has a `*:port` binding
+- [x] Status is `PASS` when none of the seven ports is running or all are loopback-only
+- [x] Status is `UNKNOWN` (not a 500) when `lsof` fails for all checked ports
+- [x] No `shell=True` and no `sudo` in the collector
+- [x] `pytest tests/test_ai.py` exits 0 — all new and existing tests pass
+- [x] Full test suite (`pytest`) exits 0 — no regressions
+- [x] Dashboard renders correctly — "Local AI Server Exposure" card shows updated description
+- [x] `docs/cli_verification.md` has Phase 31 section with recorded command output
+- [x] `docs/SIGNAL_GAPS.md` "Local AI Server — expand port coverage" entry struck through and annotated with Phase 31
 
 ---
 

@@ -1957,3 +1957,65 @@ EEventMan  832 scottrosenberg    4u  IPv4 0x6825a3dde59019de      0t0  UDP *:296
 - mDNS (port 5353): owned by `Google` (Chrome), not `mDNSResponder`. Six sockets bound to `*:5353`. This is expected browser mDNS behavior (Chrome uses mDNS for WebRTC peer discovery). The signal will flag it as an external UDP binding and show the process name in raw output — the user can review and decide. No special-case filtering.
 - Connected UDP sockets (e.g. Chrome QUIC to `[2600:...]:port → [2607:...]:443`): NAME contains `->` and does not start with `*:`. Correctly excluded by the `*:` filter.
 - Parser: split on whitespace, take the last field (`line.split()[-1]`) as NAME. Check `name.startswith("*:") and name != "*:*"` to identify external port-bound sockets.
+
+---
+
+## Phase 31 — Local AI Server: Expand Port Coverage
+
+**Date:** 2026-06-12  
+**Machine:** Apple Silicon, macOS 15.x
+
+All commands run without `sudo`.
+
+### lsof -nP -iTCP:7860 -sTCP:LISTEN
+
+```
+(no output)
+exit code: 1
+```
+
+No process listening on port 7860 (Gradio / text-generation-webui).
+
+### lsof -nP -iTCP:8080 -sTCP:LISTEN
+
+```
+(no output)
+exit code: 1
+```
+
+No process listening on port 8080 (open-webui).
+
+### lsof -nP -iTCP:3000 -sTCP:LISTEN
+
+```
+(no output)
+exit code: 1
+```
+
+No process listening on port 3000 (LocalAI).
+
+### lsof -nP -iTCP:5000 -sTCP:LISTEN
+
+```
+COMMAND   PID           USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+ControlCe 883 scottrosenberg   11u  IPv4 0xee9fa562f916c80e      0t0  TCP *:5000 (LISTEN)
+ControlCe 883 scottrosenberg   12u  IPv6 0xcc58235032dfff84      0t0  TCP *:5000 (LISTEN)
+exit code: 0
+```
+
+Port 5000 is bound by **Control Center** (`ControlCe`, PID 883) — a macOS system process, not an AI server. NAME column uses `*:5000` format (both IPv4 and IPv6 wildcard), confirming the existing `*:` prefix parser handles this correctly. This machine will show a FAIL for port 5000 at runtime; test mocks can safely use `*:5000` format.
+
+### lsof -nP -iTCP:11435 -sTCP:LISTEN
+
+```
+(no output)
+exit code: 1
+```
+
+No process listening on port 11435 (Ollama alternate port).
+
+**Summary:**
+- Ports 7860, 8080, 3000, 11435: exit code 1 (no listener), no output — matches expected PASS path.
+- Port 5000: exit code 0, NAME = `*:5000` — matches existing `*:` prefix parser; will FAIL on this machine due to Control Center.
+- All five commands run cleanly without `sudo`. No unexpected error output.
+- The existing NAME-column parser (`*:` prefix check) is confirmed sufficient for all new ports.

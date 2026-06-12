@@ -179,15 +179,28 @@ def check_ai_keys_shell_history() -> dict:
 _AI_PORTS: dict[int, str] = {
     11434: "Ollama",
     1234: "LM Studio",
+    7860: "Gradio / text-generation-webui",
+    8080: "open-webui",
+    3000: "LocalAI",
+    5000: "llama.cpp server",
+    11435: "Ollama (alternate port)",
 }
 
 
 def check_local_ai_server() -> dict:
     """Check whether a local AI inference server is bound to all network interfaces.
 
-    Checks Ollama (port 11434) and LM Studio (port 1234) using lsof. A server
-    bound to 127.0.0.1 is loopback-only and PASS. A server bound to * is
-    reachable by any host on the local network and FAIL.
+    Checks seven ports using lsof (no sudo required):
+      11434 — Ollama
+       1234 — LM Studio
+       7860 — Gradio / text-generation-webui
+       8080 — open-webui
+       3000 — LocalAI
+       5000 — llama.cpp server
+      11435 — Ollama (alternate port)
+
+    A server bound to 127.0.0.1 is loopback-only and PASS. A server bound to *
+    is reachable by any host on the local network and FAIL.
 
     PASS    — no AI server listening, or all listeners are loopback-only
     FAIL    — at least one AI server is bound to all interfaces
@@ -195,10 +208,11 @@ def check_local_ai_server() -> dict:
     """
     name = "Local AI Server Exposure"
     desc = (
-        "A local AI model server (Ollama, LM Studio) bound to all interfaces "
-        "is accessible to any host on your network and can receive arbitrary "
-        "prompts. The default is loopback-only; exposure usually means "
-        "OLLAMA_HOST=0.0.0.0 was set intentionally or accidentally."
+        "A local AI model server (Ollama, LM Studio, Gradio, open-webui, LocalAI, "
+        "llama.cpp) bound to all interfaces is accessible to any host on your "
+        "network and can receive arbitrary prompts. The default is loopback-only; "
+        "exposure usually means a host environment variable was set intentionally "
+        "or accidentally."
     )
 
     fail_lines = []
@@ -250,7 +264,7 @@ def check_local_ai_server() -> dict:
         all_lines.append("Errors: " + "; ".join(errors))
 
     raw_out = "\n".join(all_lines) if all_lines else \
-        "No AI server listening on known ports (11434, 1234)."
+        "No AI server listening on known ports (11434, 1234, 7860, 8080, 3000, 5000, 11435)."
 
     if fail_lines:
         return make_result(name, desc, "FAIL", raw_out)

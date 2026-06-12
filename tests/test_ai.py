@@ -156,16 +156,23 @@ _HEADER = "COMMAND   PID  USER   FD   TYPE DEVICE SIZE/OFF NODE NAME"
 _LOOPBACK = f"{_HEADER}\nollama  123  user  3u  IPv4  abc  0t0  TCP 127.0.0.1:11434 (LISTEN)"
 _ALL_IFACES = f"{_HEADER}\nollama  123  user  3u  IPv4  abc  0t0  TCP *:11434 (LISTEN)"
 
+# Ports in _AI_PORTS insertion order: 11434, 1234, 7860, 8080, 3000, 5000, 11435
+_NR = ("", 1, None)  # not running (rc=1, no output)
+
+def _expose(port):
+    """Return a mock lsof result for a server bound to all interfaces on port."""
+    return (f"{_HEADER}\nsrv  1  user  3u  IPv4  abc  0t0  TCP *:{port} (LISTEN)", 0, None)
+
 
 def test_local_ai_server_not_running_pass():
-    # rc=1, empty output → no listener on either port → PASS
-    with patch("collectors.ai.run_cmd_rc", return_value=("", 1, None)):
+    # rc=1, empty output → no listener on any port → PASS
+    with patch("collectors.ai.run_cmd_rc", return_value=_NR):
         _ok(check_local_ai_server(), "PASS")
 
 
 def test_local_ai_server_loopback_pass():
     with patch("collectors.ai.run_cmd_rc",
-               side_effect=[(_LOOPBACK, 0, None), ("", 1, None)]):
+               side_effect=[(_LOOPBACK, 0, None)] + [_NR] * 6):
         result = check_local_ai_server()
         _ok(result, "PASS")
         assert "127.0.0.1:11434" in result["raw"]
@@ -173,14 +180,14 @@ def test_local_ai_server_loopback_pass():
 
 def test_local_ai_server_all_interfaces_fail():
     with patch("collectors.ai.run_cmd_rc",
-               side_effect=[(_ALL_IFACES, 0, None), ("", 1, None)]):
+               side_effect=[(_ALL_IFACES, 0, None)] + [_NR] * 6):
         result = check_local_ai_server()
         _ok(result, "FAIL")
         assert "*:11434" in result["raw"]
 
 
 def test_local_ai_server_lsof_error_unknown():
-    # Both ports error → UNKNOWN
+    # All ports error → UNKNOWN
     with patch("collectors.ai.run_cmd_rc",
                return_value=("", -1, "lsof: command not found")):
         _ok(check_local_ai_server(), "UNKNOWN")
@@ -188,9 +195,71 @@ def test_local_ai_server_lsof_error_unknown():
 
 def test_local_ai_server_second_port_fail():
     # Port 11434 not running, port 1234 bound to all interfaces → FAIL
-    lm_all = f"{_HEADER}\nlms  456  user  5u  IPv4  def  0t0  TCP *:1234 (LISTEN)"
     with patch("collectors.ai.run_cmd_rc",
-               side_effect=[("", 1, None), (lm_all, 0, None)]):
+               side_effect=[_NR, _expose(1234)] + [_NR] * 5):
         result = check_local_ai_server()
         _ok(result, "FAIL")
         assert "*:1234" in result["raw"]
+
+
+def test_local_ai_server_gradio_exposed_fail():
+    # Port 7860 (index 2) bound to all interfaces → FAIL
+    with patch("collectors.ai.run_cmd_rc",
+               side_effect=[_NR, _NR, _expose(7860)] + [_NR] * 4):
+        result = check_local_ai_server()
+        _ok(result, "FAIL")
+        assert "*:7860" in result["raw"]
+        assert "Gradio" in result["raw"]
+
+
+def test_local_ai_server_open_webui_exposed_fail():
+    # Port 8080 (index 3) bound to all interfaces → FAIL
+    with patch("collectors.ai.run_cmd_rc",
+               side_effect=[_NR, _NR, _NR, _expose(8080)] + [_NR] * 3):
+        result = check_local_ai_server()
+        _ok(result, "FAIL")
+        assert "*:8080" in result["raw"]
+        assert "open-webui" in result["raw"]
+
+
+def test_local_ai_server_localai_exposed_fail():
+    # Port 3000 (index 4) bound to all interfaces → FAIL
+    with patch("collectors.ai.run_cmd_rc",
+               side_effect=[_NR, _NR, _NR, _NR, _expose(3000)] + [_NR] * 2):
+        result = check_local_ai_server()
+        _ok(result, "FAIL")
+        assert "*:3000" in result["raw"]
+        assert "LocalAI" in result["raw"]
+
+
+def test_local_ai_server_llamacpp_exposed_fail():
+    # Port 5000 (index 5) bound to all interfaces → FAIL
+    with patch("collectors.ai.run_cmd_rc",
+               side_effect=[_NR, _NR, _NR, _NR, _NR, _expose(5000), _NR]):
+        result = check_local_ai_server()
+        _ok(result, "FAIL")
+        assert "*:5000" in result["raw"]
+        assert "llama.cpp" in result["raw"]
+
+
+def test_local_ai_server_ollama_alt_exposed_fail():
+    # Port 11435 (index 6) bound to all interfaces → FAIL
+    with patch("collectors.ai.run_cmd_rc",
+               side_effect=[_NR] * 6 + [_expose(11435)]):
+        result = check_local_ai_server()
+        _ok(result, "FAIL")
+        assert "*:11435" in result["raw"]
+        assert "Ollama (alternate port)" in result["raw"]
+
+
+def test_local_ai_server_all_new_ports_not_running_pass():
+    # All five new ports (7860, 8080, 3000, 5000, 11435) return rc=1 → PASS
+    with patch("collectors.ai.run_cmd_rc",
+               side_effect=[_NR] * 7):
+        result = check_local_ai_server()
+        _ok(result, "PASS")
+        assert "not running (port 7860)" in result["raw"]
+        assert "not running (port 8080)" in result["raw"]
+        assert "not running (port 3000)" in result["raw"]
+        assert "not running (port 5000)" in result["raw"]
+        assert "not running (port 11435)" in result["raw"]
